@@ -307,7 +307,7 @@ def main():
     
     # 开始分析按钮
     with col1:
-        start_disabled = st.session_state.analysis_started and not st.session_state.analysis_completed
+        start_disabled = st.session_state.analysis_running  # 仅在分析运行时禁用
         if st.button("开始分析", type="primary", disabled=start_disabled):
             st.session_state.analysis_started = True
             st.session_state.analysis_completed = False
