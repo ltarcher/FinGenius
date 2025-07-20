@@ -198,30 +198,56 @@ def main():
     # 显示输入区域并获取参数
     input_params = show_input_area()
     
+    # 初始化会话状态变量
+    if 'analysis_started' not in st.session_state:
+        st.session_state.analysis_started = False
+    if 'analysis_completed' not in st.session_state:
+        st.session_state.analysis_completed = False
+    if 'analysis_running' not in st.session_state:
+        st.session_state.analysis_running = False
+    if 'should_stop' not in st.session_state:
+        st.session_state.should_stop = False
+    if 'error_message' not in st.session_state:
+        st.session_state.error_message = None
+    if 'analysis_results' not in st.session_state:
+        st.session_state.analysis_results = None
+    
     # 分析控制按钮
     col1, col2 = st.columns(2)
-    with col1:
-        if st.button("开始分析", type="primary"):
-            with st.spinner("初始化分析引擎..."):
-                try:
-                    # 更新状态
-                    st.session_state.app_state.analysis_started = True
-                    st.session_state.app_state.analysis_completed = False
-                    st.session_state.app_state.error_message = None
-                    st.session_state.app_state.should_stop = False
-                    
-                    # 执行实际分析
-                    st.session_state.app_state.analysis_task = asyncio.run(run_analysis(input_params))
-                    
-                except Exception as e:
-                    st.session_state.app_state.error_message = str(e)
-                    st.error(f"分析失败: {str(e)}")
     
+    # 开始分析按钮
+    with col1:
+        start_disabled = st.session_state.analysis_started and not st.session_state.analysis_completed
+        if st.button("开始分析", type="primary", disabled=start_disabled):
+            st.session_state.analysis_started = True
+            st.session_state.analysis_completed = False
+            st.session_state.error_message = None
+            st.session_state.should_stop = False
+            st.session_state.analysis_running = True
+            st.rerun()
+    
+    # 停止分析按钮
     with col2:
-        if st.session_state.app_state.analysis_started:
-            if st.button("停止分析", type="secondary", disabled=st.session_state.app_state.analysis_completed):
-                st.session_state.app_state.should_stop = True
+        if st.session_state.analysis_started:
+            if st.button("停止分析", type="secondary", disabled=st.session_state.analysis_completed, key="stop_button"):
+                st.session_state.should_stop = True
                 st.warning("正在停止分析...")
+    
+    # 如果分析正在运行，执行分析
+    if st.session_state.analysis_running and not st.session_state.analysis_completed:
+        try:
+            with st.spinner("正在分析中..."):
+                # 执行分析
+                results = asyncio.run(run_analysis(input_params))
+                if results:  # 如果分析成功完成
+                    st.session_state.analysis_completed = True
+                    st.session_state.analysis_results = results
+                st.session_state.analysis_running = False
+                st.rerun()  # 重新渲染页面以显示结果
+        except Exception as e:
+            st.session_state.error_message = str(e)
+            st.session_state.analysis_running = False
+            st.error(f"分析失败: {str(e)}")
 
     # 显示分析状态
     if st.session_state.app_state.analysis_started:
