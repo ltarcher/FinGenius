@@ -190,6 +190,30 @@ def show_input_area():
         "debate_rounds": debate_rounds
     }
 
+def set_expander_height(expander_label, height_px=200):
+    """
+    设置指定标签的expander的最大高度
+    
+    参数:
+    - expander_label: expander的标签文本
+    - height_px: 限制的高度（像素）
+    """
+    # 转义CSS选择器中的特殊字符
+    escaped_label = expander_label.replace(".", "\.").replace(":", "\:")
+    
+    # 生成CSS代码
+    css = f"""
+    <style>
+    div[data-testid="stExpander"] > div:has(> div > div > p:contains("{escaped_label}")) {{
+        max-height: {height_px}px;
+        overflow-y: auto;
+    }}
+    </style>
+    """
+    
+    # 使用markdown注入CSS
+    st.markdown(css, unsafe_allow_html=True)
+
 # 主函数
 def main():
     init_app()
@@ -278,6 +302,7 @@ async def run_analysis(params: Dict[str, Any]):
         progress_bar = st.progress(0)
         status_container = st.empty()
         st.session_state.log_container = st.expander("实时分析日志", expanded=True)
+        set_expander_height("实时分析日志", height_px=200)
         
         # 创建专家状态占位符
         expert_status_placeholder = st.empty()
@@ -477,6 +502,50 @@ def show_analysis_status():
 
 # 显示分析结果
 def show_analysis_results():
+    # 显示日志容器(折叠状态)
+    if 'log_messages' in st.session_state or 'console_output' in st.session_state:
+        with st.expander("分析日志", expanded=False):  # 设置为False保持折叠
+            # 合并显示所有消息
+            all_messages = []
+            
+            # 添加专家消息
+            if 'log_messages' in st.session_state:
+                for msg in st.session_state.log_messages:
+                    if msg["type"] == "speak":
+                        all_messages.append({
+                            "time": msg['time'],
+                            "type": "专家发言",
+                            "content": f"💬 {msg['agent']}: {msg['message']}",
+                            "style": "info"
+                        })
+                    elif msg["type"] == "vote":
+                        all_messages.append({
+                            "time": msg['time'],
+                            "type": "专家投票", 
+                            "content": f"✅ {msg['agent']}: {msg['message']}",
+                            "style": "success"
+                        })
+            
+            # 添加控制台输出
+            if 'console_output' in st.session_state:
+                for msg in st.session_state.console_output:
+                    all_messages.append({
+                        "time": msg['time'],
+                        "type": "系统输出",
+                        "content": msg['message'],
+                        "style": "text"
+                    })
+            
+            # 按时间戳排序并显示
+            all_messages.sort(key=lambda x: x['time'])
+            for msg in all_messages:
+                if msg['style'] == "info":
+                    st.info(f"{msg['time']} {msg['content']}")
+                elif msg['style'] == "success":
+                    st.success(f"{msg['time']} {msg['content']}")
+                else:
+                    st.text(f"{msg['time']} - {msg['content']}")
+
     st.success("分析完成!")
     results = st.session_state.app_state.analysis_results
     
