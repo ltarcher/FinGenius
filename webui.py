@@ -192,7 +192,7 @@ def show_input_area():
 
 def set_expander_height(expander_label, height_px=200):
     """
-    设置指定标签的expander的最大高度
+    设置指定标签的expander的最大高度，并添加滚动控制功能
     
     参数:
     - expander_label: expander的标签文本
@@ -201,18 +201,63 @@ def set_expander_height(expander_label, height_px=200):
     # 转义CSS选择器中的特殊字符
     escaped_label = expander_label.replace(".", "\.").replace(":", "\:")
     
-    # 生成CSS代码
-    css = f"""
+    # 生成CSS和JavaScript代码
+    css_js = f"""
     <style>
     div[data-testid="stExpander"] > div:has(> div > div > p:contains("{escaped_label}")) {{
         max-height: {height_px}px;
         overflow-y: auto;
+        position: relative;
     }}
     </style>
+    
+    <script>
+    // 滚动控制状态
+    let autoScrollEnabled = true;
+    let userScrolled = false;
+    let scrollTimeout = null;
+    
+    // 获取expander容器
+    const expander = document.querySelector('div[data-testid="stExpander"] > div:has(> div > div > p:contains("{escaped_label}"))');
+    
+    // 添加滚动事件监听
+    expander.addEventListener('scroll', function() {{
+        // 用户手动滚动时暂停自动滚动
+        if (!userScrolled) {{
+            userScrolled = true;
+            autoScrollEnabled = false;
+        }}
+        
+        // 清除之前的定时器
+        if (scrollTimeout) clearTimeout(scrollTimeout);
+        
+        // 如果用户滚动到底部，恢复自动滚动
+        scrollTimeout = setTimeout(() => {{
+            const {{scrollTop, scrollHeight, clientHeight}} = this;
+            const isAtBottom = scrollHeight - scrollTop <= clientHeight + 5;
+            
+            if (isAtBottom) {{
+                autoScrollEnabled = true;
+                userScrolled = false;
+            }}
+        }}, 200);
+    }});
+    
+    // 自动滚动函数
+    function autoScrollToBottom() {{
+        if (autoScrollEnabled) {{
+            expander.scrollTop = expander.scrollHeight;
+        }}
+        setTimeout(autoScrollToBottom, 300);
+    }}
+    
+    // 启动自动滚动
+    autoScrollToBottom();
+    </script>
     """
     
-    # 使用markdown注入CSS
-    st.markdown(css, unsafe_allow_html=True)
+    # 使用markdown注入CSS和JS
+    st.markdown(css_js, unsafe_allow_html=True)
 
 # 主函数
 def main():
