@@ -201,12 +201,17 @@ def set_expander_height(expander_label, height_px=200):
     # 转义CSS选择器中的特殊字符
     escaped_label = expander_label.replace(".", "\\.").replace(":", "\\:")
     
+    # 初始化自动滚动状态
+    if f'auto_scroll_{expander_label}' not in st.session_state:
+        st.session_state[f'auto_scroll_{expander_label}'] = True
+
     # 生成CSS和JavaScript代码
     css_js = f"""
     <style>
     div[data-testid="stExpander"] {{
         max-height: {height_px}px !important;
         overflow-y: auto !important;
+        position: relative;
     }}
     div[data-testid="stExpander"] > div {{
         max-height: {height_px}px !important;
@@ -216,30 +221,66 @@ def set_expander_height(expander_label, height_px=200):
         max-height: calc({height_px}px - 60px) !important;
         overflow-y: auto !important;
     }}
+    .scroll-control-btn {{
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 100;
+        background-color: #f0f2f6;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+    }}
+    .scroll-control-btn:hover {{
+        background-color: #e6e6e6;
+    }}
     </style>
     
     <script>
     function initExpanderScroll() {{
         // 滚动控制状态
-        let autoScrollEnabled = true;
+        let autoScrollEnabled = {str(st.session_state[f'auto_scroll_{expander_label}']).lower()};
         let userScrolled = false;
         let scrollTimeout = null;
         let lastScrollHeight = 0;
         
         // 获取expander容器 - 更精确的选择器
         const expander = document.querySelector('div[data-testid="stExpanderDetails"] > div');
+        const expanderContainer = document.querySelector('div[data-testid="stExpander"]');
         
-        if (!expander) {{
-            console.warn('Expander content container not found');
+        if (!expander || !expanderContainer) {{
+            console.warn('Expander container not found');
             return;
         }}
+        
+        // 创建控制按钮
+        const scrollControlBtn = document.createElement('button');
+        scrollControlBtn.className = 'scroll-control-btn';
+        scrollControlBtn.textContent = autoScrollEnabled ? '⏸ 暂停滚动' : '▶ 启用滚动';
+        scrollControlBtn.onclick = function() {{
+            autoScrollEnabled = !autoScrollEnabled;
+            this.textContent = autoScrollEnabled ? '⏸ 暂停滚动' : '▶ 启用滚动';
+            // 更新session状态
+            const updateEvent = new CustomEvent('updateScrollState', {{
+                detail: {{ enabled: autoScrollEnabled }}
+            }});
+            document.dispatchEvent(updateEvent);
+        }};
+        expanderContainer.appendChild(scrollControlBtn);
+        
+        // 监听状态更新事件
+        document.addEventListener('updateScrollState', function(e) {{
+            autoScrollEnabled = e.detail.enabled;
+            scrollControlBtn.textContent = autoScrollEnabled ? '⏸ 暂停滚动' : '▶ 启用滚动';
+        }});
         
         // 添加滚动事件监听
         expander.addEventListener('scroll', function() {{
             // 用户手动滚动时暂停自动滚动
-            if (!userScrolled) {{
+            if (!userScrolled && autoScrollEnabled) {{
                 userScrolled = true;
-                autoScrollEnabled = false;
             }}
             
             // 清除之前的定时器
@@ -250,8 +291,7 @@ def set_expander_height(expander_label, height_px=200):
                 const {{scrollTop, scrollHeight, clientHeight}} = this;
                 const isAtBottom = scrollHeight - scrollTop <= clientHeight + 5;
                 
-                if (isAtBottom) {{
-                    autoScrollEnabled = true;
+                if (isAtBottom && autoScrollEnabled) {{
                     userScrolled = false;
                 }}
             }}, 200);
@@ -259,7 +299,7 @@ def set_expander_height(expander_label, height_px=200):
         
         // 自动滚动函数
         function autoScrollToBottom() {{
-            if (autoScrollEnabled && expander) {{
+            if (autoScrollEnabled && !userScrolled && expander) {{
                 const currentScrollHeight = expander.scrollHeight;
                 // 只有内容高度变化时才滚动
                 if (currentScrollHeight > lastScrollHeight) {{
@@ -275,7 +315,7 @@ def set_expander_height(expander_label, height_px=200):
         
         // 添加MutationObserver监听内容变化
         const observer = new MutationObserver(() => {{
-            if (autoScrollEnabled && expander) {{
+            if (autoScrollEnabled && !userScrolled && expander) {{
                 const currentScrollHeight = expander.scrollHeight;
                 if (currentScrollHeight > lastScrollHeight) {{
                     expander.scrollTop = currentScrollHeight;
@@ -306,6 +346,14 @@ def set_expander_height(expander_label, height_px=200):
     }} else {{
         window.addEventListener('load', initWhenReady);
     }}
+    
+    // 监听来自Streamlit的状态更新
+    document.addEventListener('updateScrollStateFromPython', function(e) {{
+        const event = new CustomEvent('updateScrollState', {{
+            detail: {{ enabled: e.detail.enabled }}
+        }});
+        document.dispatchEvent(event);
+    }});
     </script>
     """
     
