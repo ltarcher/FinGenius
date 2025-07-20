@@ -298,7 +298,8 @@ def main():
     # 停止分析按钮
     with col2:
         if st.session_state.analysis_started:
-            if st.button("停止分析", type="secondary", disabled=st.session_state.analysis_completed, key="stop_button"):
+            stop_disabled = st.session_state.analysis_completed or not st.session_state.analysis_running
+            if st.button("停止分析", type="secondary", disabled=stop_disabled, key="stop_button"):
                 st.session_state.should_stop = True
                 st.warning("正在停止分析...")
     
