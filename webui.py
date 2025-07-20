@@ -204,55 +204,76 @@ def set_expander_height(expander_label, height_px=200):
     # 生成CSS和JavaScript代码
     css_js = f"""
     <style>
-    div[data-testid="stExpander"] > div:has(> div > div > p:contains("{escaped_label}")) {{
-        max-height: {height_px}px;
-        overflow-y: auto;
-        position: relative;
+    div[data-testid="stExpander"] {{
+        max-height: {height_px}px !important;
+        overflow-y: auto !important;
+    }}
+    div[data-testid="stExpander"] > div {{
+        max-height: {height_px}px !important;
+        overflow-y: auto !important;
+    }}
+    div[data-testid="stExpanderDetails"] {{
+        max-height: calc({height_px}px - 60px) !important;
+        overflow-y: auto !important;
     }}
     </style>
     
     <script>
-    // 滚动控制状态
-    let autoScrollEnabled = true;
-    let userScrolled = false;
-    let scrollTimeout = null;
-    
-    // 获取expander容器
-    const expander = document.querySelector('div[data-testid="stExpander"] > div:has(> div > div > p:contains("{escaped_label}"))');
-    
-    // 添加滚动事件监听
-    expander.addEventListener('scroll', function() {{
-        // 用户手动滚动时暂停自动滚动
-        if (!userScrolled) {{
-            userScrolled = true;
-            autoScrollEnabled = false;
+    function initExpanderScroll() {{
+        // 滚动控制状态
+        let autoScrollEnabled = true;
+        let userScrolled = false;
+        let scrollTimeout = null;
+        
+        // 获取expander容器 - 使用更通用的选择器
+        const expander = document.querySelector('div[data-testid="stExpanderDetails"]');
+        
+        if (!expander) {{
+            console.warn('Expander container not found');
+            return;
         }}
         
-        // 清除之前的定时器
-        if (scrollTimeout) clearTimeout(scrollTimeout);
-        
-        // 如果用户滚动到底部，恢复自动滚动
-        scrollTimeout = setTimeout(() => {{
-            const {{scrollTop, scrollHeight, clientHeight}} = this;
-            const isAtBottom = scrollHeight - scrollTop <= clientHeight + 5;
-            
-            if (isAtBottom) {{
-                autoScrollEnabled = true;
-                userScrolled = false;
+        // 添加滚动事件监听
+        expander.addEventListener('scroll', function() {{
+            // 用户手动滚动时暂停自动滚动
+            if (!userScrolled) {{
+                userScrolled = true;
+                autoScrollEnabled = false;
             }}
-        }}, 200);
-    }});
-    
-    // 自动滚动函数
-    function autoScrollToBottom() {{
-        if (autoScrollEnabled) {{
-            expander.scrollTop = expander.scrollHeight;
+            
+            // 清除之前的定时器
+            if (scrollTimeout) clearTimeout(scrollTimeout);
+            
+            // 如果用户滚动到底部，恢复自动滚动
+            scrollTimeout = setTimeout(() => {{
+                const {{scrollTop, scrollHeight, clientHeight}} = this;
+                const isAtBottom = scrollHeight - scrollTop <= clientHeight + 5;
+                
+                if (isAtBottom) {{
+                    autoScrollEnabled = true;
+                    userScrolled = false;
+                }}
+            }}, 200);
+        }});
+        
+        // 自动滚动函数
+        function autoScrollToBottom() {{
+            if (autoScrollEnabled && expander) {{
+                expander.scrollTop = expander.scrollHeight;
+            }}
+            setTimeout(autoScrollToBottom, 300);
         }}
-        setTimeout(autoScrollToBottom, 300);
+        
+        // 启动自动滚动
+        autoScrollToBottom();
     }}
     
-    // 启动自动滚动
-    autoScrollToBottom();
+    // 确保DOM加载完成后初始化
+    if (document.readyState === 'complete') {{
+        initExpanderScroll();
+    }} else {{
+        window.addEventListener('load', initExpanderScroll);
+    }}
     </script>
     """
     
