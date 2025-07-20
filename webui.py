@@ -199,7 +199,7 @@ def set_expander_height(expander_label, height_px=200):
     - height_px: 限制的高度（像素）
     """
     # 转义CSS选择器中的特殊字符
-    escaped_label = expander_label.replace(".", "\.").replace(":", "\:")
+    escaped_label = expander_label.replace(".", "\\.").replace(":", "\\:")
     
     # 生成CSS和JavaScript代码
     css_js = f"""
@@ -369,7 +369,7 @@ async def run_analysis(params: Dict[str, Any]):
         progress_bar = st.progress(0)
         status_container = st.empty()
         st.session_state.log_container = st.expander("实时分析日志", expanded=True)
-        set_expander_height("实时分析日志", height_px=200)
+        set_expander_height("实时分析日志", height_px=600)
         
         # 创建专家状态占位符
         expert_status_placeholder = st.empty()
