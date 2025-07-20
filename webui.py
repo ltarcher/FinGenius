@@ -482,36 +482,56 @@ def show_analysis_results():
     
     # 显示关键指标
     st.subheader("📊 综合分析结果")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("风险评分", f"{results['risk_score']}/10", 
-                delta=f"{results['risk_change']}%",
-                help="分数越低风险越小")
     
-    with col2:
-        st.metric("价值评分", f"{results['value_score']}/10", 
-                delta=f"{results['value_change']}%",
-                help="分数越高投资价值越大")
+    # 显示股票代码和分析时间
+    st.markdown(f"**股票代码**: {results.get('stock_code', '未知')}")
+    st.markdown(f"**分析耗时**: {results.get('analysis_time', 0):.2f}秒")
     
-    with col3:
-        st.metric("目标价格", results['target_price'],
-                help="基于专家共识的目标价格区间")
+    # 显示专家共识
+    if 'expert_consensus' in results:
+        st.metric("专家共识", results['expert_consensus'])
     
-    # 显示投资建议
-    st.subheader("💡 投资建议")
-    st.write(results['recommendation'])
+    # 显示投票结果
+    if 'battle_result' in results and 'vote_count' in results['battle_result']:
+        votes = results['battle_result']['vote_count']
+        total_votes = sum(votes.values())
+        if total_votes > 0:
+            bullish_pct = (votes.get('bullish', 0) / total_votes) * 100
+            bearish_pct = (votes.get('bearish', 0) / total_votes) * 100
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("看涨比例", f"{bullish_pct:.1f}%")
+            with col2:
+                st.metric("看跌比例", f"{bearish_pct:.1f}%")
     
     # 显示详细结果
-    with st.expander("� 详细分析结果"):
-        tab1, tab2 = st.tabs(["专家分析", "投票结果"])
+    with st.expander("详细分析结果"):
+        tab1, tab2 = st.tabs(["研究结果", "辩论记录"])
         
         with tab1:
-            for expert, analysis in results['expert_analysis'].items():
-                st.subheader(f"🧠 {expert}")
-                st.write(analysis)
+            # 显示研究阶段结果
+            for key, value in results.items():
+                if key not in ['stock_code', 'analysis_time', 'battle_result', 'expert_consensus']:
+                    st.subheader(f"{key.replace('_', ' ').title()}")
+                    if isinstance(value, dict):
+                        st.json(value)
+                    else:
+                        st.write(value)
         
         with tab2:
-            st.dataframe(results['vote_results'])
+            # 显示辩论阶段结果
+            if 'battle_result' in results:
+                battle_data = results['battle_result']
+                if 'debate_history' in battle_data:
+                    st.subheader("辩论历史")
+                    for msg in battle_data['debate_history']:
+                        st.markdown(f"**{msg.get('agent', '未知专家')}**: {msg.get('content', '')}")
+                
+                if 'battle_highlights' in battle_data:
+                    st.subheader("关键辩论点")
+                    for highlight in battle_data['battle_highlights']:
+                        st.markdown(f"- **{highlight.get('agent', '未知专家')}**: {highlight.get('point', '')}")
     
     # 报告下载按钮
     st.subheader("📥 报告下载")
