@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import sys
 import time
 from typing import Any, Dict, List, Optional
 
@@ -111,6 +112,8 @@ class AppState:
         self.max_progress = 100
         self.analysis_results = None
         self.error_message = None
+        self.analysis_task = None
+        self.should_stop = False
 
 # 初始化应用
 def init_app():
@@ -195,21 +198,30 @@ def main():
     # 显示输入区域并获取参数
     input_params = show_input_area()
     
-    # 开始分析按钮
-    if st.button("开始分析", type="primary"):
-        with st.spinner("初始化分析引擎..."):
-            try:
-                # Update state
-                st.session_state.app_state.analysis_started = True
-                st.session_state.app_state.analysis_completed = False
-                st.session_state.app_state.error_message = None
-                
-                # Run actual analysis
-                asyncio.run(run_analysis(input_params))
-                
-            except Exception as e:
-                st.session_state.app_state.error_message = str(e)
-                st.error(f"分析失败: {str(e)}")
+    # 分析控制按钮
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("开始分析", type="primary"):
+            with st.spinner("初始化分析引擎..."):
+                try:
+                    # Update state
+                    st.session_state.app_state.analysis_started = True
+                    st.session_state.app_state.analysis_completed = False
+                    st.session_state.app_state.error_message = None
+                    st.session_state.app_state.should_stop = False
+                    
+                    # Run actual analysis
+                    st.session_state.app_state.analysis_task = asyncio.run(run_analysis(input_params))
+                    
+                except Exception as e:
+                    st.session_state.app_state.error_message = str(e)
+                    st.error(f"分析失败: {str(e)}")
+    
+    with col2:
+        if st.session_state.app_state.analysis_started:
+            if st.button("停止分析", type="secondary", disabled=st.session_state.app_state.analysis_completed):
+                st.session_state.app_state.should_stop = True
+                st.warning("正在停止分析...")
 
     # 显示分析状态
     if st.session_state.app_state.analysis_started:
@@ -222,8 +234,19 @@ def main():
 async def run_analysis(params: Dict[str, Any]):
     """Run actual stock analysis with EnhancedFinGeniusAnalyzer"""
     try:
+        # Check if analysis should stop before starting
+        if st.session_state.app_state.should_stop:
+            st.session_state.app_state.analysis_started = False
+            return None
+
         # Initialize analyzer
         analyzer = EnhancedFinGeniusAnalyzer()
+        
+        # Add periodic check for stop request
+        async def check_stop():
+            while not st.session_state.app_state.should_stop:
+                await asyncio.sleep(0.5)
+            raise asyncio.CancelledError("分析已停止")
         
         # Create progress bar and status container
         progress_bar = st.progress(0)
@@ -246,32 +269,163 @@ async def run_analysis(params: Dict[str, Any]):
                 for i, (name, status) in enumerate(experts.items()):
                     cols[i % 3].metric(name, status)
         
-        # Mock visualizer for streamlit
+        # Enhanced visualizer for streamlit with real-time logging
         class StreamlitVisualizer:
+            def __init__(self):
+                if 'log_messages' not in st.session_state:
+                    st.session_state.log_messages = []
+                if 'console_output' not in st.session_state:
+                    st.session_state.console_output = []
+                self.last_update = time.time()
+                self.original_stdout = sys.stdout
+                sys.stdout = self  # Redirect stdout
+                
+            def write(self, message):
+                """Capture console output"""
+                if message.strip():
+                    timestamp = time.strftime("%H:%M:%S")
+                    log_entry = {
+                        "time": timestamp,
+                        "message": message,
+                        "type": "console"
+                    }
+                    st.session_state.console_output.append(log_entry)
+                    self._update_console_display()
+                
+            def flush(self):
+                pass
+        
             def show_progress_update(self, title: str, message: str = ""):
                 update_progress(f"{title}: {message}", st.session_state.app_state.current_progress)
-                
+            
             def show_debate_message(self, agent: str, message: str, message_type: str):
-                with log_container:
-                    if message_type == "speak":
-                        st.info(f"💬 {agent}: {message}")
-                    elif message_type == "vote":
-                        st.success(f"✅ {agent}: {message}")
+                # Add message to queue with timestamp and type
+                timestamp = time.strftime("%H:%M:%S")
+                log_entry = {
+                    "time": timestamp,
+                    "agent": agent,
+                    "message": message,
+                    "type": message_type
+                }
+                st.session_state.log_messages.append(log_entry)
+            
+                # Keep log size reasonable
+                if len(st.session_state.log_messages) > 100:
+                    st.session_state.log_messages = st.session_state.log_messages[-50:]
+            
+                # Update display with throttling (max 5 updates per second)
+                if time.time() - self.last_update > 0.2:
+                    self._update_log_display()
+                    self.last_update = time.time()
+        
+            def _update_log_display(self):
+                # Use empty container for dynamic updates
+                if 'log_container' not in st.session_state:
+                    st.session_state.log_container = st.empty()
+            
+                with st.session_state.log_container.container():
+                    # Combined display of all messages
+                    all_messages = []
+                    
+                    # Add expert messages
+                    for msg in st.session_state.log_messages[-15:]:
+                        if msg["type"] == "speak":
+                            all_messages.append({
+                                "time": msg['time'],
+                                "type": "专家发言",
+                                "content": f"💬 {msg['agent']}: {msg['message']}",
+                                "style": "info"
+                            })
+                        elif msg["type"] == "vote":
+                            all_messages.append({
+                                "time": msg['time'],
+                                "type": "专家投票", 
+                                "content": f"✅ {msg['agent']}: {msg['message']}",
+                                "style": "success"
+                            })
+                    
+                    # Add console output
+                    for msg in st.session_state.console_output[-10:]:
+                        all_messages.append({
+                            "time": msg['time'],
+                            "type": "系统输出",
+                            "content": msg['message'],
+                            "style": "text"
+                        })
+                    
+                    # Sort by timestamp and display
+                    all_messages.sort(key=lambda x: x['time'])
+                    for msg in all_messages[-25:]:  # Show last 25 combined messages
+                        if msg['style'] == "info":
+                            st.info(f"{msg['time']} {msg['content']}")
+                        elif msg['style'] == "success":
+                            st.success(f"{msg['time']} {msg['content']}")
+                        else:
+                            st.text(f"{msg['time']} - {msg['content']}")
+                
+                    # Auto-scroll to bottom
+                    st.markdown(
+                        """
+                        <script>
+                            window.scrollTo(0, document.body.scrollHeight);
+                        </script>
+                        """,
+                        unsafe_allow_html=True
+                    )
+            
+            def _update_console_display(self):
+                """Update console output display"""
+                if time.time() - self.last_update > 0.5:  # Throttle updates
+                    self._update_log_display()
+                    self.last_update = time.time()
         
         # Replace console visualizer with streamlit version
         visualizer = StreamlitVisualizer()
         
-        # Run analysis
-        update_progress("开始分析...", 10)
-        results = await analyzer.analyze_stock(
-            stock_code=params["stock_code"],
-            max_steps=params["max_steps"],
-            debate_rounds=params["debate_rounds"]
+        # Create tasks
+        stop_check_task = asyncio.create_task(check_stop())
+        analysis_task = asyncio.create_task(
+            analyzer.analyze_stock(
+                stock_code=params["stock_code"],
+                max_steps=params["max_steps"],
+                debate_rounds=params["debate_rounds"]
+            )
         )
-        
-        # Update final state
-        st.session_state.app_state.analysis_completed = True
-        st.session_state.app_state.analysis_results = results
+
+        try:
+            # Run analysis with progress update
+            update_progress("开始分析...", 10)
+            done, pending = await asyncio.wait(
+                [stop_check_task, analysis_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # Handle results or cancellation
+            if analysis_task in done:
+                results = analysis_task.result()
+                # Update final state
+                st.session_state.app_state.analysis_completed = True
+                st.session_state.app_state.analysis_results = results
+            else:
+                analysis_task.cancel()
+                raise asyncio.CancelledError("分析已停止")
+
+        except asyncio.CancelledError:
+            st.session_state.app_state.analysis_started = False
+            st.session_state.app_state.error_message = "分析已停止"
+            raise
+        except Exception as e:
+            st.session_state.app_state.error_message = str(e)
+            raise
+        finally:
+            # Clean up tasks
+            for task in pending:
+                task.cancel()
+            stop_check_task.cancel()
+            
+            # Restore stdout
+            if hasattr(visualizer, 'original_stdout'):
+                sys.stdout = visualizer.original_stdout
         
         # Show completion
         update_progress("分析完成!", 100)
@@ -319,7 +473,7 @@ def show_analysis_results():
     st.write(results['recommendation'])
     
     # 显示详细结果
-    with st.expander("🔍 详细分析结果"):
+    with st.expander("� 详细分析结果"):
         tab1, tab2 = st.tabs(["专家分析", "投票结果"])
         
         with tab1:
@@ -353,4 +507,23 @@ def show_analysis_results():
         )
 
 if __name__ == "__main__":
-    main()
+    import threading
+    import os
+    
+    def run_main():
+        try:
+            main()
+        except KeyboardInterrupt:
+            pass
+    
+    def signal_handler(signum, frame):
+        print("\n应用程序正在停止...")
+        if hasattr(st.session_state, 'app_state') and st.session_state.app_state.analysis_task:
+            st.session_state.app_state.should_stop = True
+        os._exit(0)
+    
+    if threading.current_thread() is threading.main_thread():
+        import signal
+        signal.signal(signal.SIGINT, signal_handler)
+    
+    run_main()
