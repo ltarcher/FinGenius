@@ -17,7 +17,7 @@ from src.config import config
 from main import EnhancedFinGeniusAnalyzer
 
 def generate_html_report(results: Dict[str, Any]) -> str:
-    """Generate HTML report from analysis results"""
+    """根据分析结果生成HTML报告"""
     stock_code = results.get("stock_code", "")
     recommendation = results.get("recommendation", "")
     risk_score = results.get("risk_score", 0)
@@ -103,19 +103,19 @@ def generate_html_report(results: Dict[str, Any]) -> str:
     
     return html
 
-# 全局状态管理
+# 全局状态管理类
 class AppState:
     def __init__(self):
-        self.analysis_started = False
-        self.analysis_completed = False
-        self.current_progress = 0
-        self.max_progress = 100
-        self.analysis_results = None
-        self.error_message = None
-        self.analysis_task = None
-        self.should_stop = False
+        self.analysis_started = False  # 分析是否已开始
+        self.analysis_completed = False  # 分析是否已完成
+        self.current_progress = 0  # 当前进度值
+        self.max_progress = 100  # 最大进度值
+        self.analysis_results = None  # 分析结果存储
+        self.error_message = None  # 错误信息
+        self.analysis_task = None  # 分析任务对象
+        self.should_stop = False  # 是否应该停止分析
 
-# 初始化应用
+# 初始化Streamlit应用
 def init_app():
     st.set_page_config(
         page_title="FinGenius - AI金融分析系统",
@@ -128,7 +128,7 @@ def init_app():
     if 'app_state' not in st.session_state:
         st.session_state.app_state = AppState()
 
-    # 加载配置
+    # 加载配置文件
     try:
         st.session_state.config = config
     except Exception as e:
@@ -144,7 +144,7 @@ def show_header():
     """)
     st.divider()
 
-# 用户输入区域
+# 显示用户输入区域
 def show_input_area():
     st.subheader("分析参数设置")
     
@@ -204,13 +204,13 @@ def main():
         if st.button("开始分析", type="primary"):
             with st.spinner("初始化分析引擎..."):
                 try:
-                    # Update state
+                    # 更新状态
                     st.session_state.app_state.analysis_started = True
                     st.session_state.app_state.analysis_completed = False
                     st.session_state.app_state.error_message = None
                     st.session_state.app_state.should_stop = False
                     
-                    # Run actual analysis
+                    # 执行实际分析
                     st.session_state.app_state.analysis_task = asyncio.run(run_analysis(input_params))
                     
                 except Exception as e:
@@ -232,36 +232,36 @@ def main():
         show_analysis_results()
 
 async def run_analysis(params: Dict[str, Any]):
-    """Run actual stock analysis with EnhancedFinGeniusAnalyzer"""
+    """使用EnhancedFinGeniusAnalyzer执行实际的股票分析"""
     try:
-        # Check if analysis should stop before starting
+        # 在开始前检查是否应该停止分析
         if st.session_state.app_state.should_stop:
             st.session_state.app_state.analysis_started = False
             return None
 
-        # Initialize analyzer
+        # 初始化分析器
         analyzer = EnhancedFinGeniusAnalyzer()
         
-        # Add periodic check for stop request
+        # 添加定期检查停止请求的函数
         async def check_stop():
             while not st.session_state.app_state.should_stop:
                 await asyncio.sleep(0.5)
             raise asyncio.CancelledError("分析已停止")
         
-        # Create progress bar and status container
+        # 创建进度条和状态容器
         progress_bar = st.progress(0)
         status_container = st.empty()
         st.session_state.log_container = st.expander("实时分析日志", expanded=True)
         
-        # Create a placeholder for expert status
+        # 创建专家状态占位符
         expert_status_placeholder = st.empty()
         
-        # Update progress and status
+        # 更新进度和状态
         def update_progress(message: str, progress: int = 0):
             progress_bar.progress(progress)
             status_container.text(message)
         
-        # Update expert status
+        # 更新专家状态
         def update_expert_status(experts: Dict[str, str]):
             with expert_status_placeholder.container():
                 st.subheader("专家状态")
@@ -269,7 +269,7 @@ async def run_analysis(params: Dict[str, Any]):
                 for i, (name, status) in enumerate(experts.items()):
                     cols[i % 3].metric(name, status)
         
-        # Enhanced visualizer for streamlit with real-time logging
+        # 增强的Streamlit可视化器，带实时日志功能
         class StreamlitVisualizer:
             def __init__(self):
                 if 'log_messages' not in st.session_state:
@@ -278,10 +278,10 @@ async def run_analysis(params: Dict[str, Any]):
                     st.session_state.console_output = []
                 self.last_update = time.time()
                 self.original_stdout = sys.stdout
-                sys.stdout = self  # Redirect stdout
+                sys.stdout = self  # 重定向标准输出
                 
             def write(self, message):
-                """Capture console output"""
+                """捕获控制台输出"""
                 if message.strip():
                     timestamp = time.strftime("%H:%M:%S")
                     log_entry = {
@@ -299,7 +299,7 @@ async def run_analysis(params: Dict[str, Any]):
                 update_progress(f"{title}: {message}", st.session_state.app_state.current_progress)
             
             def show_debate_message(self, agent: str, message: str, message_type: str):
-                # Add message to queue with timestamp and type
+                # 将消息添加到队列，带时间戳和类型
                 timestamp = time.strftime("%H:%M:%S")
                 log_entry = {
                     "time": timestamp,
@@ -309,25 +309,25 @@ async def run_analysis(params: Dict[str, Any]):
                 }
                 st.session_state.log_messages.append(log_entry)
             
-                # Keep log size reasonable
+                # 保持日志大小合理
                 if len(st.session_state.log_messages) > 100:
                     st.session_state.log_messages = st.session_state.log_messages[-50:]
             
-                # Update display with throttling (max 5 updates per second)
+                # 限制更新频率(每秒最多5次)
                 if time.time() - self.last_update > 0.2:
                     self._update_log_display()
                     self.last_update = time.time()
         
             def _update_log_display(self):
-                # Use empty container for dynamic updates
+                # 使用空容器进行动态更新
                 if 'log_container' not in st.session_state:
                     st.session_state.log_container = st.empty()
             
                 with st.session_state.log_container.container():
-                    # Combined display of all messages
+                    # 合并显示所有消息
                     all_messages = []
                     
-                    # Add expert messages
+                    # 添加专家消息
                     for msg in st.session_state.log_messages[-15:]:
                         if msg["type"] == "speak":
                             all_messages.append({
@@ -344,7 +344,7 @@ async def run_analysis(params: Dict[str, Any]):
                                 "style": "success"
                             })
                     
-                    # Add console output
+                    # 添加控制台输出
                     for msg in st.session_state.console_output[-10:]:
                         all_messages.append({
                             "time": msg['time'],
@@ -353,9 +353,9 @@ async def run_analysis(params: Dict[str, Any]):
                             "style": "text"
                         })
                     
-                    # Sort by timestamp and display
+                    # 按时间戳排序并显示
                     all_messages.sort(key=lambda x: x['time'])
-                    for msg in all_messages[-25:]:  # Show last 25 combined messages
+                    for msg in all_messages[-25:]:  # 显示最近的25条合并消息
                         if msg['style'] == "info":
                             st.info(f"{msg['time']} {msg['content']}")
                         elif msg['style'] == "success":
@@ -363,7 +363,7 @@ async def run_analysis(params: Dict[str, Any]):
                         else:
                             st.text(f"{msg['time']} - {msg['content']}")
                 
-                    # Auto-scroll to bottom
+                    # 自动滚动到底部
                     st.markdown(
                         """
                         <script>
@@ -374,8 +374,8 @@ async def run_analysis(params: Dict[str, Any]):
                     )
             
             def _update_console_display(self):
-                """Update console output display"""
-                if time.time() - self.last_update > 0.5:  # Throttle updates
+                """更新控制台输出显示"""
+                if time.time() - self.last_update > 0.5:  # 限制更新频率
                     self._update_log_display()
                     self.last_update = time.time()
         
@@ -393,17 +393,17 @@ async def run_analysis(params: Dict[str, Any]):
         )
 
         try:
-            # Run analysis with progress update
+            # 运行分析并更新进度
             update_progress("开始分析...", 10)
             done, pending = await asyncio.wait(
                 [stop_check_task, analysis_task],
                 return_when=asyncio.FIRST_COMPLETED
             )
 
-            # Handle results or cancellation
+            # 处理结果或取消
             if analysis_task in done:
                 results = analysis_task.result()
-                # Update final state
+                # 更新最终状态
                 st.session_state.app_state.analysis_completed = True
                 st.session_state.app_state.analysis_results = results
             else:
@@ -418,16 +418,16 @@ async def run_analysis(params: Dict[str, Any]):
             st.session_state.app_state.error_message = str(e)
             raise
         finally:
-            # Clean up tasks
+            # 清理任务
             for task in pending:
                 task.cancel()
             stop_check_task.cancel()
             
-            # Restore stdout
+            # 恢复标准输出
             if hasattr(visualizer, 'original_stdout'):
                 sys.stdout = visualizer.original_stdout
         
-        # Show completion
+        # 显示完成状态
         update_progress("分析完成!", 100)
         st.balloons()
         
@@ -522,6 +522,7 @@ if __name__ == "__main__":
             st.session_state.app_state.should_stop = True
         os._exit(0)
     
+    # 只在主线程中设置信号处理
     if threading.current_thread() is threading.main_thread():
         import signal
         signal.signal(signal.SIGINT, signal_handler)
