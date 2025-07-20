@@ -291,6 +291,9 @@ async def run_analysis(params: Dict[str, Any]):
                     }
                     st.session_state.console_output.append(log_entry)
                     self._update_console_display()
+
+                    # 同时也输出到控制台
+                    self.original_stdout.write(message)
                 
             def flush(self):
                 pass
