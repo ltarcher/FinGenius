@@ -5,12 +5,16 @@ import asyncio
 import json
 import sys
 import time
+import io
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
 from rich import print as rprint
 from rich.panel import Panel
 from rich.text import Text
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.syntax import Syntax
 
 from src.config import config
 
@@ -190,6 +194,66 @@ def show_input_area():
         "debate_rounds": debate_rounds
     }
 
+# 创建一个专门的日志渲染器类，用于处理ANSI控制符号
+class RichLogRenderer:
+    """使用rich库渲染带有ANSI控制符号的日志"""
+    
+    def __init__(self):
+        """初始化日志渲染器"""
+        self.console = Console(
+            color_system="truecolor",
+            width=100,  # 初始宽度，会根据容器自动调整
+            highlight=True,
+            record=True,
+            markup=True
+        )
+    
+    def render_text(self, text, syntax=None):
+        """渲染文本，支持ANSI控制符号"""
+        string_io = io.StringIO()
+        console = Console(
+            file=string_io,
+            color_system="truecolor",
+            width=100,
+            highlight=True,
+            markup=True
+        )
+        
+        if syntax:
+            # 如果指定了语法，使用Syntax渲染
+            console.print(Syntax(text, syntax, theme="monokai"))
+        else:
+            # 否则直接打印文本
+            console.print(text)
+        
+        # 获取HTML输出
+        html = string_io.getvalue()
+        return html
+    
+    def render_to_html(self, text, style=None):
+        """将文本渲染为HTML，保留ANSI颜色和格式"""
+        string_io = io.StringIO()
+        console = Console(
+            file=string_io,
+            color_system="truecolor",
+            width=100,
+            highlight=True,
+            markup=True
+        )
+        
+        if style:
+            console.print(text, style=style)
+        else:
+            console.print(text)
+        
+        # 获取HTML输出并转换为适合Streamlit的格式
+        html = string_io.getvalue()
+        # 将ANSI转义序列转换为HTML
+        return f"""<pre style="white-space: pre-wrap; word-wrap: break-word; 
+                  font-family: 'Courier New', monospace; margin: 0; padding: 8px; 
+                  border-radius: 4px; background-color: #f0f2f6;">{html}</pre>"""
+
+
 def set_expander_height(expander_label, height_px=200):
     """
     设置指定标签的expander的最大高度，并添加滚动控制功能
@@ -235,6 +299,70 @@ def set_expander_height(expander_label, height_px=200):
     }}
     .scroll-control-btn:hover {{
         background-color: #e6e6e6;
+    }}
+    /* 美化日志显示的样式 */
+    .rich-log-container {{
+        font-family: 'Courier New', monospace;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background-color: #1e1e1e;
+        color: #f0f0f0;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 5px 0;
+        overflow-x: auto;
+        width: 100%;
+    }}
+    .rich-log-container pre {{
+        margin: 0;
+        padding: 0;
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+    }}
+    .log-entry {{
+        margin-bottom: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        padding-bottom: 8px;
+    }}
+    .log-timestamp {{
+        color: #888;
+        font-size: 0.85em;
+        margin-right: 8px;
+    }}
+    .log-agent {{
+        font-weight: bold;
+        color: #4caf50;
+        margin-right: 8px;
+    }}
+    .log-message {{
+        color: #f0f0f0;
+    }}
+    .log-speak {{
+        border-left: 3px solid #2196F3;
+        padding-left: 8px;
+    }}
+    .log-vote {{
+        border-left: 3px solid #4CAF50;
+        padding-left: 8px;
+    }}
+    .log-console {{
+        border-left: 3px solid #FFC107;
+        padding-left: 8px;
+        font-family: 'Courier New', monospace;
+    }}
+    /* 确保代码块和日志内容自动换行 */
+    pre {{
+        white-space: pre-wrap !important;
+        word-wrap: break-word !important;
+    }}
+    /* 美化控制台输出 */
+    .console-output {{
+        font-family: 'Courier New', monospace;
+        background-color: #1e1e1e;
+        color: #f0f0f0;
+        padding: 8px;
+        border-radius: 4px;
+        margin: 4px 0;
     }}
     </style>
     
@@ -451,6 +579,27 @@ async def run_analysis(params: Dict[str, Any]):
         st.session_state.log_container = st.expander("实时分析日志", expanded=True)
         set_expander_height("实时分析日志", height_px=600)
         
+        # 添加额外的CSS样式，确保日志显示美观
+        st.markdown("""
+        <style>
+        /* 确保日志容器内的内容自动换行并适应宽度 */
+        .rich-log-container {
+            width: 100%;
+            overflow-x: auto;
+        }
+        /* 确保代码和ANSI颜色正确显示 */
+        .rich-log-container pre {
+            white-space: pre-wrap !important;
+            word-wrap: break-word !important;
+            width: 100%;
+        }
+        /* 调整日志条目的间距 */
+        .log-entry {
+            padding: 4px 0;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         # 创建专家状态占位符
         expert_status_placeholder = st.empty()
         
@@ -478,13 +627,21 @@ async def run_analysis(params: Dict[str, Any]):
                 self.original_stdout = sys.stdout
                 sys.stdout = self  # 重定向标准输出
                 
+                # 初始化Rich日志渲染器
+                self.log_renderer = RichLogRenderer()
+                
             def write(self, message):
-                """捕获控制台输出"""
+                """捕获控制台输出，支持ANSI控制符号"""
                 if message.strip():
                     timestamp = time.strftime("%H:%M:%S")
+                    
+                    # 使用Rich渲染ANSI控制符号
+                    rendered_message = self.log_renderer.render_text(message)
+                    
                     log_entry = {
                         "time": timestamp,
                         "message": message,
+                        "rendered_message": rendered_message,
                         "type": "console"
                     }
                     st.session_state.console_output.append(log_entry)
@@ -502,10 +659,15 @@ async def run_analysis(params: Dict[str, Any]):
             def show_debate_message(self, agent: str, message: str, message_type: str):
                 # 将消息添加到队列，带时间戳和类型
                 timestamp = time.strftime("%H:%M:%S")
+                
+                # 使用Rich渲染消息，保留格式
+                rendered_message = self.log_renderer.render_text(message)
+                
                 log_entry = {
                     "time": timestamp,
                     "agent": agent,
                     "message": message,
+                    "rendered_message": rendered_message,
                     "type": message_type
                 }
                 st.session_state.log_messages.append(log_entry)
@@ -525,6 +687,10 @@ async def run_analysis(params: Dict[str, Any]):
                     st.session_state.log_container = st.empty()
             
                 with st.session_state.log_container.container():
+                    # 创建一个HTML容器来显示所有日志
+                    html_logs = []
+                    html_logs.append('<div class="rich-log-container">')
+                    
                     # 合并显示所有消息
                     all_messages = []
                     
@@ -534,15 +700,19 @@ async def run_analysis(params: Dict[str, Any]):
                             all_messages.append({
                                 "time": msg['time'],
                                 "type": "专家发言",
-                                "content": f"💬 {msg['agent']}: {msg['message']}",
-                                "style": "info"
+                                "agent": msg['agent'],
+                                "content": msg.get('rendered_message', msg['message']),
+                                "raw_content": msg['message'],
+                                "style": "log-speak"
                             })
                         elif msg["type"] == "vote":
                             all_messages.append({
                                 "time": msg['time'],
-                                "type": "专家投票", 
-                                "content": f"✅ {msg['agent']}: {msg['message']}",
-                                "style": "success"
+                                "type": "专家投票",
+                                "agent": msg['agent'],
+                                "content": msg.get('rendered_message', msg['message']),
+                                "raw_content": msg['message'],
+                                "style": "log-vote"
                             })
                     
                     # 添加控制台输出
@@ -550,19 +720,36 @@ async def run_analysis(params: Dict[str, Any]):
                         all_messages.append({
                             "time": msg['time'],
                             "type": "系统输出",
-                            "content": msg['message'],
-                            "style": "text"
+                            "content": msg.get('rendered_message', msg['message']),
+                            "raw_content": msg['message'],
+                            "style": "log-console"
                         })
                     
-                    # 按时间戳排序并显示
+                    # 按时间戳排序
                     all_messages.sort(key=lambda x: x['time'])
+                    
+                    # 生成HTML日志
                     for msg in all_messages[-25:]:  # 显示最近的25条合并消息
-                        if msg['style'] == "info":
-                            st.info(f"{msg['time']} {msg['content']}")
-                        elif msg['style'] == "success":
-                            st.success(f"{msg['time']} {msg['content']}")
+                        html_logs.append(f'<div class="log-entry {msg["style"]}">')
+                        html_logs.append(f'<span class="log-timestamp">{msg["time"]}</span>')
+                        
+                        if "agent" in msg:
+                            html_logs.append(f'<span class="log-agent">{msg["agent"]}</span>')
+                        
+                        if msg["style"] == "log-speak":
+                            icon = "💬"
+                        elif msg["style"] == "log-vote":
+                            icon = "✅"
                         else:
-                            st.text(f"{msg['time']} - {msg['content']}")
+                            icon = "🖥️"
+                            
+                        html_logs.append(f'<span class="log-message">{icon} {msg["content"]}</span>')
+                        html_logs.append('</div>')
+                    
+                    html_logs.append('</div>')
+                    
+                    # 使用st.markdown显示HTML日志
+                    st.markdown(''.join(html_logs), unsafe_allow_html=True)
                 
                     # 自动滚动到底部
                     st.markdown(
@@ -652,6 +839,13 @@ def show_analysis_results():
     # 显示日志容器(折叠状态)
     if 'log_messages' in st.session_state or 'console_output' in st.session_state:
         with st.expander("分析日志", expanded=False):  # 设置为False保持折叠
+            # 创建Rich日志渲染器
+            log_renderer = RichLogRenderer()
+            
+            # 创建一个HTML容器来显示所有日志
+            html_logs = []
+            html_logs.append('<div class="rich-log-container">')
+            
             # 合并显示所有消息
             all_messages = []
             
@@ -659,39 +853,66 @@ def show_analysis_results():
             if 'log_messages' in st.session_state:
                 for msg in st.session_state.log_messages:
                     if msg["type"] == "speak":
+                        rendered_message = msg.get('rendered_message', 
+                                                  log_renderer.render_text(msg['message']))
                         all_messages.append({
                             "time": msg['time'],
                             "type": "专家发言",
-                            "content": f"💬 {msg['agent']}: {msg['message']}",
-                            "style": "info"
+                            "agent": msg['agent'],
+                            "content": rendered_message,
+                            "raw_content": msg['message'],
+                            "style": "log-speak"
                         })
                     elif msg["type"] == "vote":
+                        rendered_message = msg.get('rendered_message', 
+                                                  log_renderer.render_text(msg['message']))
                         all_messages.append({
                             "time": msg['time'],
-                            "type": "专家投票", 
-                            "content": f"✅ {msg['agent']}: {msg['message']}",
-                            "style": "success"
+                            "type": "专家投票",
+                            "agent": msg['agent'],
+                            "content": rendered_message,
+                            "raw_content": msg['message'],
+                            "style": "log-vote"
                         })
             
             # 添加控制台输出
             if 'console_output' in st.session_state:
                 for msg in st.session_state.console_output:
+                    rendered_message = msg.get('rendered_message', 
+                                              log_renderer.render_text(msg['message']))
                     all_messages.append({
                         "time": msg['time'],
                         "type": "系统输出",
-                        "content": msg['message'],
-                        "style": "text"
+                        "content": rendered_message,
+                        "raw_content": msg['message'],
+                        "style": "log-console"
                     })
             
-            # 按时间戳排序并显示
+            # 按时间戳排序
             all_messages.sort(key=lambda x: x['time'])
+            
+            # 生成HTML日志
             for msg in all_messages:
-                if msg['style'] == "info":
-                    st.info(f"{msg['time']} {msg['content']}")
-                elif msg['style'] == "success":
-                    st.success(f"{msg['time']} {msg['content']}")
+                html_logs.append(f'<div class="log-entry {msg["style"]}">')
+                html_logs.append(f'<span class="log-timestamp">{msg["time"]}</span>')
+                
+                if "agent" in msg:
+                    html_logs.append(f'<span class="log-agent">{msg["agent"]}</span>')
+                
+                if msg["style"] == "log-speak":
+                    icon = "💬"
+                elif msg["style"] == "log-vote":
+                    icon = "✅"
                 else:
-                    st.text(f"{msg['time']} - {msg['content']}")
+                    icon = "🖥️"
+                    
+                html_logs.append(f'<span class="log-message">{icon} {msg["content"]}</span>')
+                html_logs.append('</div>')
+            
+            html_logs.append('</div>')
+            
+            # 使用st.markdown显示HTML日志
+            st.markdown(''.join(html_logs), unsafe_allow_html=True)
 
     st.success("分析完成!")
     results = st.session_state.app_state.analysis_results
