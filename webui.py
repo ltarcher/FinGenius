@@ -224,12 +224,13 @@ def set_expander_height(expander_label, height_px=200):
         let autoScrollEnabled = true;
         let userScrolled = false;
         let scrollTimeout = null;
+        let lastScrollHeight = 0;
         
-        // 获取expander容器 - 使用更通用的选择器
-        const expander = document.querySelector('div[data-testid="stExpanderDetails"]');
+        // 获取expander容器 - 更精确的选择器
+        const expander = document.querySelector('div[data-testid="stExpanderDetails"] > div');
         
         if (!expander) {{
-            console.warn('Expander container not found');
+            console.warn('Expander content container not found');
             return;
         }}
         
@@ -259,20 +260,51 @@ def set_expander_height(expander_label, height_px=200):
         // 自动滚动函数
         function autoScrollToBottom() {{
             if (autoScrollEnabled && expander) {{
-                expander.scrollTop = expander.scrollHeight;
+                const currentScrollHeight = expander.scrollHeight;
+                // 只有内容高度变化时才滚动
+                if (currentScrollHeight > lastScrollHeight) {{
+                    expander.scrollTop = currentScrollHeight;
+                    lastScrollHeight = currentScrollHeight;
+                }}
             }}
-            setTimeout(autoScrollToBottom, 300);
+            setTimeout(autoScrollToBottom, 100); // 更频繁的检查
         }}
         
         // 启动自动滚动
         autoScrollToBottom();
+        
+        // 添加MutationObserver监听内容变化
+        const observer = new MutationObserver(() => {{
+            if (autoScrollEnabled && expander) {{
+                const currentScrollHeight = expander.scrollHeight;
+                if (currentScrollHeight > lastScrollHeight) {{
+                    expander.scrollTop = currentScrollHeight;
+                    lastScrollHeight = currentScrollHeight;
+                }}
+            }}
+        }});
+        
+        observer.observe(expander, {{
+            childList: true,
+            subtree: true,
+            characterData: true
+        }});
     }}
     
-    // 确保DOM加载完成后初始化
+    // 确保Streamlit组件渲染完成后初始化
+    const initWhenReady = () => {{
+        const checkInterval = setInterval(() => {{
+            if (document.querySelector('div[data-testid="stExpanderDetails"]')) {{
+                clearInterval(checkInterval);
+                initExpanderScroll();
+            }}
+        }}, 100);
+    }};
+    
     if (document.readyState === 'complete') {{
-        initExpanderScroll();
+        initWhenReady();
     }} else {{
-        window.addEventListener('load', initExpanderScroll);
+        window.addEventListener('load', initWhenReady);
     }}
     </script>
     """
