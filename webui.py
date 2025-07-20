@@ -251,7 +251,7 @@ async def run_analysis(params: Dict[str, Any]):
         # Create progress bar and status container
         progress_bar = st.progress(0)
         status_container = st.empty()
-        log_container = st.expander("实时分析日志", expanded=True)
+        st.session_state.log_container = st.expander("实时分析日志", expanded=True)
         
         # Create a placeholder for expert status
         expert_status_placeholder = st.empty()
