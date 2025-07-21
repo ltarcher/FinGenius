@@ -197,7 +197,7 @@ def generate_html_report(results: Dict[str, Any]) -> str:
     <div class="vote-summary">
         <h2>专家投票结果</h2>
         <div class="final-decision">
-            最终结论: {battle_result.get('final_decision', '无结果')}
+            最终结论: {'看涨' if battle_result.get('final_decision') == 'bullish' else '看跌' if battle_result.get('final_decision') == 'bearish' else '持平'}
         </div>
         <div class="vote-metrics">
             <div class="bullish">
@@ -211,12 +211,12 @@ def generate_html_report(results: Dict[str, Any]) -> str:
         </div>
     </div>
     
-    <h2>研究分析结果</h2>
-    {''.join(research_sections)}
-    
     <h2>专家辩论</h2>
     {debate_history}
     {battle_highlights}
+
+    <h2>研究分析结果</h2>
+    {''.join(research_sections)}
     
     <div class="timestamp" style="margin-top: 30px;">
         分析耗时: {results.get('analysis_time', 0):.2f}秒 | 
