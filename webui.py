@@ -58,13 +58,28 @@ def generate_html_report(results: Dict[str, Any]) -> str:
     research_results = {k: v for k, v in results.items() 
                        if k not in ["stock_code", "analysis_time", "battle_result"]}
     
-    # 计算投票比例
+    # 计算投票比例（更健壮的处理方式）
     vote_count = battle_result.get("vote_count", {})
-    bull_cnt = vote_count.get("bullish", 0)
-    bear_cnt = vote_count.get("bearish", 0)
+    if not isinstance(vote_count, dict):
+        vote_count = {}
+    
+    # 确保获取正确的投票数值
+    bull_cnt = int(vote_count.get("bullish", 0))
+    bear_cnt = int(vote_count.get("bearish", 0))
     total_votes = bull_cnt + bear_cnt
-    bull_pct = round(bull_cnt / total_votes * 100, 1) if total_votes else 0
-    bear_pct = round(bear_cnt / total_votes * 100, 1) if total_votes else 0
+    
+    # 处理除零情况和无效数据
+    if total_votes > 0:
+        bull_pct = round(bull_cnt / total_votes * 100, 1)
+        bear_pct = round(bear_cnt / total_votes * 100, 1)
+    else:
+        bull_pct = bear_pct = 0.0
+        bull_cnt = bear_cnt = 0
+    
+    # 确保比例总和为100%
+    if total_votes > 0 and (bull_pct + bear_pct) != 100:
+        diff = 100 - (bull_pct + bear_pct)
+        bull_pct += diff  # 将差值加到看涨比例上
     
     # 生成研究结果部分
     research_sections = []
@@ -810,23 +825,38 @@ def show_analysis_results():
     st.markdown(f"**股票代码**: {results.get('stock_code', '未知')}")
     st.markdown(f"**分析耗时**: {results.get('analysis_time', 0):.2f}秒")
     
-    # 显示专家共识
-    if 'expert_consensus' in results:
-        st.metric("专家共识", results['expert_consensus'])
+    # 显示最终结果和投票详情
+    battle_result = results.get('battle_result', {})
+    vote_count = battle_result.get('vote_count', {})
     
-    # 显示投票结果
-    if 'battle_result' in results and 'vote_count' in results['battle_result']:
-        votes = results['battle_result']['vote_count']
-        total_votes = sum(votes.values())
-        if total_votes > 0:
-            bullish_pct = (votes.get('bullish', 0) / total_votes) * 100
-            bearish_pct = (votes.get('bearish', 0) / total_votes) * 100
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("看涨比例", f"{bullish_pct:.1f}%")
-            with col2:
-                st.metric("看跌比例", f"{bearish_pct:.1f}%")
+    # 获取最终结论
+    final_decision = battle_result.get('final_decision', '无结果')
+    decision_text = '看涨' if final_decision == 'bullish' else '看跌' if final_decision == 'bearish' else '无明确结论'
+    
+    # 计算投票比例
+    bull_cnt = int(vote_count.get('bullish', 0))
+    bear_cnt = int(vote_count.get('bearish', 0))
+    total_votes = bull_cnt + bear_cnt
+    
+    if total_votes > 0:
+        bull_pct = round(bull_cnt / total_votes * 100, 1)
+        bear_pct = round(bear_cnt / total_votes * 100, 1)
+    else:
+        bull_pct = bear_pct = 0.0
+    
+    # 显示最终结论
+    st.metric("最终结论", decision_text)
+    
+    # 显示投票详情
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("看涨比例", 
+                f"{bull_pct}%",
+                f"{bull_cnt}票")
+    with col2:
+        st.metric("看跌比例", 
+                f"{bear_pct}%", 
+                f"{bear_cnt}票")
     
     # 显示详细结果
     with st.expander("详细分析结果"):
