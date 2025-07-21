@@ -156,6 +156,10 @@ class EnhancedFinGeniusAnalyzer:
             if hasattr(battle_env, 'llm_calls'):
                 self.total_llm_calls += battle_env.llm_calls
             
+            # 确保vote_results映射到vote_count，保持一致性
+            if results and 'vote_results' in results:
+                results['vote_count'] = results['vote_results']
+            
             await research_env.cleanup()
             await battle_env.cleanup()
             return results
@@ -284,15 +288,18 @@ class EnhancedFinGeniusAnalyzer:
             
             # Save vote results JSON
             visualizer.show_progress_update("保存投票结果", "JSON格式...")
+            vote_count = battle_result.get("vote_count", {})
             vote_data = {
                 "stock_code": stock_code,
                 "timestamp": timestamp,
                 "final_decision": battle_result.get("final_decision", "No decision"),
-                "vote_count": battle_result.get("vote_count", {}),
+                "vote_count": vote_count,
                 "agent_order": battle_result.get("agent_order", []),
                 "vote_details": {
-                    "bullish": battle_result.get("vote_count", {}).get("bullish", 0),
-                    "bearish": battle_result.get("vote_count", {}).get("bearish", 0),
+                    "bullish": vote_count.get("bullish", 0),
+                    "bearish": vote_count.get("bearish", 0),
+                    # 包含所有投票选项，不仅仅是bullish和bearish
+                    "all_votes": vote_count,
                     "total_agents": len(battle_result.get("agent_order", []))
                 }
             }
@@ -330,9 +337,25 @@ class EnhancedFinGeniusAnalyzer:
             votes = battle_results["vote_count"]
             total_votes = sum(votes.values())
             if total_votes > 0:
-                bullish_pct = (votes.get("bullish", 0) / total_votes) * 100
-                final_results["expert_consensus"] = f"{bullish_pct:.1f}% 看涨"
-                final_results["battle_result"] = battle_results
+                # 计算所有投票选项的百分比
+                vote_percentages = {
+                    option: (count / total_votes) * 100
+                    for option, count in votes.items()
+                }
+                
+                # 获取主要投票结果
+                bullish_pct = vote_percentages.get("bullish", 0)
+                bearish_pct = vote_percentages.get("bearish", 0)
+                
+                # 添加详细投票信息
+                final_results.update({
+                    "expert_consensus": f"{bullish_pct:.1f}% 看涨",
+                    "vote_details": {
+                        "percentages": vote_percentages,
+                        "total_votes": total_votes
+                    },
+                    "battle_result": battle_results
+                })
         
         return final_results
 
