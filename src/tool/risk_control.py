@@ -110,6 +110,8 @@ if __name__ == "__main__":
         print(
             f"- Financial Data: {'Retrieved' if output['financial'] else 'Not Retrieved'}"
         )
-        print(
-            f"- Legal Data: {'Retrieved' + f' ({len(output['legal'])} items)' if output['legal'] else 'Not Retrieved'}"
-        )
+        if output['legal']:
+            legal_info = f"Retrieved ({len(output['legal'])} items)"
+        else:
+            legal_info = "Not Retrieved"
+        print(f"- Legal Data: {legal_info}")
