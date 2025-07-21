@@ -204,22 +204,10 @@ class EnhancedFinGeniusAnalyzer:
             logger.info("生成HTML报告...")
             report_agent = await ReportAgent.create(max_steps=3)
             
-            # Prepare report data
-            summary = "\n\n".join([
-                f"金融专家对{stock_code}的研究结果如下：",
-                f"情感分析：{research_result.get('sentiment', '暂无数据')}",
-                f"风险分析：{research_result.get('risk', '暂无数据')}",
-                f"游资分析：{research_result.get('hot_money', '暂无数据')}",
-                f"技术面分析：{research_result.get('technical', '暂无数据')}",
-                f"筹码分析：{research_result.get('chip_analysis', '暂无数据')}",
-                f"大单异动分析：{research_result.get('big_deal', '暂无数据')}",
-                f"博弈结果：{battle_result.get('final_decision', '无结果')}",
-                f"投票统计：{battle_result.get('vote_count', {})}"
-            ])
-            
             # Calculate vote percentages
-            bull_cnt = battle_result.get('vote_count', {}).get('bullish', 0)
-            bear_cnt = battle_result.get('vote_count', {}).get('bearish', 0)
+            vote_count = battle_result.get('vote_count', {})
+            bull_cnt = vote_count.get('bullish', 0)
+            bear_cnt = vote_count.get('bearish', 0)
             total_votes = bull_cnt + bear_cnt
             bull_pct = round(bull_cnt / total_votes * 100, 1) if total_votes else 0
             bear_pct = round(bear_cnt / total_votes * 100, 1) if total_votes else 0
@@ -227,22 +215,36 @@ class EnhancedFinGeniusAnalyzer:
             # Generate HTML report
             html_filename = f"report_{stock_code}_{timestamp}.html"
             html_path = f"report/{html_filename}"
+            
+            # Prepare research summary for HTML report
+            research_summary = {
+                "sentiment": research_result.get('sentiment', '暂无数据'),
+                "risk": research_result.get('risk', '暂无数据'),
+                "hot_money": research_result.get('hot_money', '暂无数据'),
+                "technical": research_result.get('technical', '暂无数据'),
+                "chip_analysis": research_result.get('chip_analysis', '暂无数据'),
+                "big_deal": research_result.get('big_deal', '暂无数据')
+            }
 
-            html_request = f"""
-            基于股票{stock_code}的综合分析，生成一份美观的HTML报告。
-            
-            请在报告中包含以下模块，并按顺序呈现：
-            1. 标题及股票基本信息
-            2. 博弈结果与投票统计（先展示投票结论与统计）
-               • 最终结论：{battle_result.get('final_decision', '未知')}
-               • 看涨票数：{bull_cnt}（{bull_pct}%）
-               • 看跌票数：{bear_cnt}（{bear_pct}%）
-            3. 各项研究分析结果（情感、风险、游资、技术面、筹码、大单异动）
-            4. 辩论对话过程：按照时间顺序，以聊天气泡或时间线形式展示 `battle_results.debate_history` 中的发言，**必须完整呈现全部发言，不得删减省略**；清晰标注轮次、专家名称、发言内容与时间戳。
-            5. 任何你认为有助于读者理解的图表或可视化。
-            
-            重要：请确保页面最底部保留 AI 免责声明。
-            """
+            html_request = {
+                "stock_code": stock_code,
+                "final_decision": battle_result.get('final_decision', '未知'),
+                "vote_stats": {
+                    "bullish": {"count": bull_cnt, "percentage": bull_pct},
+                    "bearish": {"count": bear_cnt, "percentage": bear_pct},
+                    "total": total_votes
+                },
+                "research_summary": research_summary,
+                "debate_history": battle_result.get('debate_history', []),
+                "requirements": [
+                    "标题及股票基本信息",
+                    "博弈结果与投票统计（先展示投票结论与统计）",
+                    "各项研究分析结果（情感、风险、游资、技术面、筹码、大单异动）",
+                    "辩论对话过程：按照时间顺序，以聊天气泡或时间线形式展示",
+                    "任何有助于读者理解的图表或可视化",
+                    "页面最底部保留AI免责声明"
+                ]
+            }
             
             try:
                 if report_agent and report_agent.available_tools:

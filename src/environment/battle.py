@@ -419,13 +419,35 @@ class BattleEnvironment(BaseEnvironment):
 
     def _prepare_results(self) -> Dict[str, Any]:
         """Prepare battle results."""
-        return {
+        results = {
             "vote_results": self.state.vote_results,
             "battle_history": self.state.battle_history,
             "battle_highlights": self.state.battle_highlights,
             "tool_calls": self.tool_calls,
             "llm_calls": self.llm_calls,
+            "agent_order": self.state.agent_order,
         }
+        
+        # 计算最终决策
+        if self.state.vote_results:
+            # 获取最高票数的选项
+            max_vote = max(self.state.vote_results.values())
+            winning_options = [
+                option for option, count in self.state.vote_results.items() 
+                if count == max_vote
+            ]
+            
+            # 如果有明确的赢家
+            if len(winning_options) == 1:
+                results["final_decision"] = winning_options[0]
+            # 如果平票，随机选择一个
+            elif len(winning_options) > 1:
+                results["final_decision"] = random.choice(winning_options)
+            # 如果没有投票
+            else:
+                results["final_decision"] = "undecided"
+        
+        return results
 
     async def _broadcast_message(self, sender_id: str, content: str, event_type: str) -> None:
         """Broadcast message to all active agents."""
