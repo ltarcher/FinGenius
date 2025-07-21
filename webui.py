@@ -19,48 +19,35 @@ from rich.theme import Theme
 from src.config import config
 
 class RichLogRenderer:
-    """使用Rich库渲染带有ANSI控制符号的日志文本"""
+    """使用Rich库格式化日志文本"""
     
     def __init__(self):
-        # 自定义主题
-        self.theme = Theme({
-            "info": "bold blue",
-            "success": "bold green",
-            "warning": "bold yellow",
-            "error": "bold red",
-            "debug": "dim",
-            "timestamp": "cyan",
-            "agent": "magenta",
-        })
-        self.console = Console(theme=self.theme, record=True)
+        # 简单的控制台实例，不记录HTML
+        self.console = Console()
         self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
         
     def render_log(self, message, log_type: str = "text") -> str:
-        """渲染日志消息为HTML"""
+        """格式化日志消息"""
         try:
             # 确保message是字符串
             if not isinstance(message, str):
                 message = str(message)
-                
-            # 捕获Rich输出
-            with self.console.capture() as capture:
-                if log_type == "info":
-                    self.console.print(f"[info]{message}[/]")
-                elif log_type == "success":
-                    self.console.print(f"[success]{message}[/]")
-                elif log_type == "error":
-                    self.console.print(f"[error]{message}[/]")
-                elif log_type == "debug":
-                    self.console.print(f"[debug]{message}[/]")
-                else:
-                    # 处理ANSI转义序列
-                    cleaned = self.ansi_escape.sub('', message)
-                    self.console.print(cleaned)
             
-            # 获取HTML输出
-            return self.console.export_html(inline_styles=True)
+            # 处理ANSI转义序列
+            message = self.ansi_escape.sub('', message)
+            
+            # 简单添加类型前缀
+            if log_type == "info":
+                return f"[INFO] {message}"
+            elif log_type == "success":
+                return f"[SUCCESS] {message}"
+            elif log_type == "error":
+                return f"[ERROR] {message}"
+            elif log_type == "debug":
+                return f"[DEBUG] {message}"
+            return message
         except Exception as e:
-            return f"<pre>{str(message)} (渲染错误: {str(e)})</pre>"
+            return f"{message} (渲染错误: {str(e)})"
 
 from main import EnhancedFinGeniusAnalyzer
 
@@ -529,7 +516,26 @@ async def run_analysis(params: Dict[str, Any]):
                 
             def write(self, message):
                 """捕获控制台输出并处理ANSI转义序列"""
-                if message.strip():
+                try:
+                    if not message or not str(message).strip():
+                        return
+                        
+                    # 确保message是字符串，处理Rich对象和其他非字符串类型
+                    if not isinstance(message, str):
+                        if hasattr(message, '__rich_console__'):
+                            from rich.console import Console
+                            console = Console()
+                            with console.capture() as capture:
+                                console.print(message)
+                            message = capture.get()
+                        elif hasattr(message, '__str__'):
+                            message = str(message)
+                        else:
+                            message = repr(message)
+                    
+                    # 处理可能的多行消息
+                    message = message.replace('\r\n', '\n').replace('\r', '\n')
+                    
                     timestamp = time.strftime("%H:%M:%S")
                     html_content = self.renderer.render_log(message)
                     
@@ -544,6 +550,8 @@ async def run_analysis(params: Dict[str, Any]):
 
                     # 同时也输出到控制台
                     self.original_stdout.write(message)
+                except Exception as e:
+                    self.original_stdout.write(f"Error processing log message: {str(e)}\n")
                 
             def flush(self):
                 pass
