@@ -549,7 +549,13 @@ async def run_analysis(params: Dict[str, Any]):
                 pass
         
             def show_progress_update(self, title: str, message: str = ""):
-                update_progress(f"{title}: {message}", st.session_state.app_state.current_progress)
+                # 确保所有参数都是字符串
+                title_str = str(title) if title is not None else ""
+                message_str = str(message) if message is not None else ""
+                progress = st.session_state.app_state.current_progress
+                
+                # 更新进度
+                update_progress(f"{title_str}: {message_str}", progress)
             
             def show_debate_message(self, agent: str, message: str, message_type: str):
                 """显示专家辩论消息"""
