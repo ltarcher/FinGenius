@@ -36,6 +36,43 @@ class RichLogRenderer:
             # 处理ANSI转义序列
             message = self.ansi_escape.sub('', message)
             
+            # 处理多行HTML内容 - 合并被分割的HTML标签
+            lines = message.splitlines()
+            merged_lines = []
+            in_html_tag = False
+            current_tag = ""
+            
+            for line in lines:
+                stripped = line.strip()
+                if "<" in stripped and ">" not in stripped:
+                    # 开始HTML标签
+                    in_html_tag = True
+                    current_tag += stripped
+                elif in_html_tag and ">" in stripped:
+                    # 结束HTML标签
+                    current_tag += " " + stripped
+                    merged_lines.append(current_tag)
+                    in_html_tag = False
+                    current_tag = ""
+                elif in_html_tag:
+                    # HTML标签中间部分
+                    current_tag += " " + stripped
+                else:
+                    # 普通文本
+                    merged_lines.append(stripped)
+            
+            # 重新组合处理后的内容
+            message = "\n".join(merged_lines)
+            
+            # 转义HTML标签，防止被误解析为HTML
+            message = message.replace("<", "&lt;").replace(">", "&gt;")
+            
+            # 处理可能的markdown代码块
+            if "```" in message:
+                # 将markdown代码块转换为预格式化文本
+                message = re.sub(r"```(\w*)\n(.*?)```", r"<pre><code>\2</code></pre>", 
+                                message, flags=re.DOTALL)
+            
             # 简单添加类型前缀
             if log_type == "info":
                 return f"[INFO] {message}"
@@ -47,7 +84,7 @@ class RichLogRenderer:
                 return f"[DEBUG] {message}"
             return message
         except Exception as e:
-            return f"{message} (渲染错误: {str(e)})"
+            return f"{str(message).replace('<', '&lt;').replace('>', '&gt;')} (渲染错误: {str(e)})"
 
 from main import EnhancedFinGeniusAnalyzer
 
