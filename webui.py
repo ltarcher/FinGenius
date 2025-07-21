@@ -52,12 +52,60 @@ class RichLogRenderer:
 from main import EnhancedFinGeniusAnalyzer
 
 def generate_html_report(results: Dict[str, Any]) -> str:
-    """根据分析结果生成HTML报告"""
-    stock_code = results.get("stock_code", "")
-    recommendation = results.get("recommendation", "")
-    risk_score = results.get("risk_score", 0)
-    value_score = results.get("value_score", 0)
-    target_price = results.get("target_price", "")
+    """根据分析结果生成HTML报告，匹配main.py中的报告结构"""
+    stock_code = results.get("stock_code", "未知股票")
+    battle_result = results.get("battle_result", {})
+    research_results = {k: v for k, v in results.items() 
+                       if k not in ["stock_code", "analysis_time", "battle_result"]}
+    
+    # 计算投票比例
+    vote_count = battle_result.get("vote_count", {})
+    bull_cnt = vote_count.get("bullish", 0)
+    bear_cnt = vote_count.get("bearish", 0)
+    total_votes = bull_cnt + bear_cnt
+    bull_pct = round(bull_cnt / total_votes * 100, 1) if total_votes else 0
+    bear_pct = round(bear_cnt / total_votes * 100, 1) if total_votes else 0
+    
+    # 生成研究结果部分
+    research_sections = []
+    for key, value in research_results.items():
+        if isinstance(value, dict):
+            content = "<ul>" + "".join(f"<li><strong>{k}:</strong> {v}</li>" 
+                                     for k, v in value.items()) + "</ul>"
+        else:
+            content = str(value)
+        research_sections.append(f"""
+        <div class="research-section">
+            <h3>{key.replace('_', ' ').title()}</h3>
+            <div class="research-content">{content}</div>
+        </div>
+        """)
+    
+    # 生成辩论历史部分
+    debate_history = ""
+    if battle_result.get("debate_history"):
+        debate_history = "<div class='debate-history'><h3>辩论历史</h3><ul>"
+        for msg in battle_result["debate_history"]:
+            debate_history += f"""
+            <li class="debate-message">
+                <strong>{msg.get('agent', '未知专家')}:</strong>
+                <span>{msg.get('content', '')}</span>
+            </li>
+            """
+        debate_history += "</ul></div>"
+    
+    # 生成关键辩论点
+    battle_highlights = ""
+    if battle_result.get("battle_highlights"):
+        battle_highlights = "<div class='battle-highlights'><h3>关键辩论点</h3><ul>"
+        for highlight in battle_result["battle_highlights"]:
+            battle_highlights += f"""
+            <li class="highlight">
+                <strong>{highlight.get('agent', '未知专家')}:</strong>
+                <span>{highlight.get('point', '')}</span>
+            </li>
+            """
+        battle_highlights += "</ul></div>"
     
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -67,71 +115,56 @@ def generate_html_report(results: Dict[str, Any]) -> str:
     <title>{stock_code} 分析报告</title>
     <style>
         body {{ font-family: Arial, sans-serif; line-height: 1.6; max-width: 1000px; margin: 0 auto; padding: 20px; }}
-        h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-        .header {{ display: flex; justify-content: space-between; align-items: center; }}
-        .metrics {{ display: flex; justify-content: space-around; margin: 20px 0; }}
-        .metric {{ text-align: center; padding: 15px; border-radius: 5px; background: #f8f9fa; }}
-        .recommendation {{ padding: 15px; background: #e8f4fd; border-left: 5px solid #3498db; margin: 20px 0; }}
-        .expert-analysis {{ margin-top: 30px; }}
-        .expert {{ margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; }}
-        .risk-low {{ color: #27ae60; }}
-        .risk-medium {{ color: #f39c12; }}
-        .risk-high {{ color: #e74c3c; }}
+        h1, h2, h3 {{ color: #2c3e50; }}
+        .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+        .vote-summary {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+        .vote-metrics {{ display: flex; justify-content: space-around; text-align: center; }}
+        .bullish {{ color: #27ae60; }}
+        .bearish {{ color: #e74c3c; }}
+        .research-section {{ margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; }}
+        .debate-message, .highlight {{ margin: 10px 0; padding: 10px; background: #fff; border-left: 3px solid #3498db; }}
+        .final-decision {{ font-size: 1.2em; font-weight: bold; margin: 15px 0; }}
+        .timestamp {{ color: #7f8c8d; font-size: 0.9em; }}
     </style>
 </head>
 <body>
     <div class="header">
         <h1>{stock_code} 股票分析报告</h1>
-        <div>生成时间: {time.strftime("%Y-%m-%d %H:%M:%S")}</div>
+        <div class="timestamp">生成时间: {time.strftime("%Y-%m-%d %H:%M:%S")}</div>
     </div>
     
-    <div class="metrics">
-        <div class="metric">
-            <h3>风险评分</h3>
-            <p class="{'risk-low' if risk_score < 4 else 'risk-medium' if risk_score < 7 else 'risk-high'}">
-                {risk_score}/10
-            </p>
+    <div class="vote-summary">
+        <h2>专家投票结果</h2>
+        <div class="final-decision">
+            最终结论: {battle_result.get('final_decision', '无结果')}
         </div>
-        <div class="metric">
-            <h3>价值评分</h3>
-            <p>{value_score}/10</p>
+        <div class="vote-metrics">
+            <div class="bullish">
+                <div>看涨比例</div>
+                <div>{bull_pct}% ({bull_cnt}票)</div>
+            </div>
+            <div class="bearish">
+                <div>看跌比例</div>
+                <div>{bear_pct}% ({bear_cnt}票)</div>
+            </div>
         </div>
-        <div class="metric">
-            <h3>目标价格</h3>
-            <p>{target_price}</p>
-        </div>
     </div>
     
-    <div class="recommendation">
-        <h2>投资建议</h2>
-        <p>{recommendation}</p>
+    <h2>研究分析结果</h2>
+    {''.join(research_sections)}
+    
+    <h2>专家辩论</h2>
+    {debate_history}
+    {battle_highlights}
+    
+    <div class="timestamp" style="margin-top: 30px;">
+        分析耗时: {results.get('analysis_time', 0):.2f}秒 | 
+        工具调用: {results.get('total_tool_calls', 0)}次 | 
+        LLM调用: {results.get('total_llm_calls', 0)}次
     </div>
     
-    <div class="expert-analysis">
-        <h2>专家分析</h2>
-        {''.join(
-            f'<div class="expert"><h3>{expert}</h3><p>{analysis}</p></div>'
-            for expert, analysis in results.get('expert_analysis', {}).items()
-        )}
-    </div>
-    
-    <div class="vote-results">
-        <h2>投票结果</h2>
-        <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-            <thead>
-                <tr style="background-color: #3498db; color: white;">
-                    <th>专家</th>
-                    <th>投票</th>
-                    <th>理由</th>
-                </tr>
-            </thead>
-            <tbody>
-                {''.join(
-                    f'<tr><td>{vote["expert"]}</td><td>{vote["vote"]}</td><td>{vote["reason"]}</td></tr>'
-                    for vote in results.get('vote_results', [])
-                )}
-            </tbody>
-        </table>
+    <div style="margin-top: 20px; font-size: 0.8em; color: #95a5a6; border-top: 1px solid #eee; padding-top: 10px;">
+        免责声明: 本报告由AI生成，仅供参考，不构成投资建议
     </div>
 </body>
 </html>"""
