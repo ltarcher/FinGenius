@@ -3,16 +3,64 @@
 
 import asyncio
 import json
+import re
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import streamlit as st
 from rich import print as rprint
+from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from rich.syntax import Syntax
+from rich.theme import Theme
 
 from src.config import config
+
+class RichLogRenderer:
+    """使用Rich库渲染带有ANSI控制符号的日志文本"""
+    
+    def __init__(self):
+        # 自定义主题
+        self.theme = Theme({
+            "info": "bold blue",
+            "success": "bold green",
+            "warning": "bold yellow",
+            "error": "bold red",
+            "debug": "dim",
+            "timestamp": "cyan",
+            "agent": "magenta",
+        })
+        self.console = Console(theme=self.theme, record=True)
+        self.ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        
+    def render_log(self, message, log_type: str = "text") -> str:
+        """渲染日志消息为HTML"""
+        try:
+            # 确保message是字符串
+            if not isinstance(message, str):
+                message = str(message)
+                
+            # 捕获Rich输出
+            with self.console.capture() as capture:
+                if log_type == "info":
+                    self.console.print(f"[info]{message}[/]")
+                elif log_type == "success":
+                    self.console.print(f"[success]{message}[/]")
+                elif log_type == "error":
+                    self.console.print(f"[error]{message}[/]")
+                elif log_type == "debug":
+                    self.console.print(f"[debug]{message}[/]")
+                else:
+                    # 处理ANSI转义序列
+                    cleaned = self.ansi_escape.sub('', message)
+                    self.console.print(cleaned)
+            
+            # 获取HTML输出
+            return self.console.export_html(inline_styles=True)
+        except Exception as e:
+            return f"<pre>{str(message)} (渲染错误: {str(e)})</pre>"
 
 from main import EnhancedFinGeniusAnalyzer
 
@@ -467,7 +515,7 @@ async def run_analysis(params: Dict[str, Any]):
                 for i, (name, status) in enumerate(experts.items()):
                     cols[i % 3].metric(name, status)
         
-        # 增强的Streamlit可视化器，带实时日志功能
+        # 增强的Streamlit可视化器，带Rich支持的实时日志功能
         class StreamlitVisualizer:
             def __init__(self):
                 if 'log_messages' not in st.session_state:
@@ -476,15 +524,19 @@ async def run_analysis(params: Dict[str, Any]):
                     st.session_state.console_output = []
                 self.last_update = time.time()
                 self.original_stdout = sys.stdout
+                self.renderer = RichLogRenderer()
                 sys.stdout = self  # 重定向标准输出
                 
             def write(self, message):
-                """捕获控制台输出"""
+                """捕获控制台输出并处理ANSI转义序列"""
                 if message.strip():
                     timestamp = time.strftime("%H:%M:%S")
+                    html_content = self.renderer.render_log(message)
+                    
                     log_entry = {
                         "time": timestamp,
                         "message": message,
+                        "html": html_content,
                         "type": "console"
                     }
                     st.session_state.console_output.append(log_entry)
@@ -500,12 +552,16 @@ async def run_analysis(params: Dict[str, Any]):
                 update_progress(f"{title}: {message}", st.session_state.app_state.current_progress)
             
             def show_debate_message(self, agent: str, message: str, message_type: str):
-                # 将消息添加到队列，带时间戳和类型
+                """显示专家辩论消息"""
                 timestamp = time.strftime("%H:%M:%S")
+                styled_message = f"[{timestamp}] [{agent}] {message}"
+                html_content = self.renderer.render_log(styled_message, message_type)
+                
                 log_entry = {
                     "time": timestamp,
                     "agent": agent,
                     "message": message,
+                    "html": html_content,
                     "type": message_type
                 }
                 st.session_state.log_messages.append(log_entry)
@@ -520,49 +576,33 @@ async def run_analysis(params: Dict[str, Any]):
                     self.last_update = time.time()
         
             def _update_log_display(self):
-                # 使用空容器进行动态更新
+                """更新日志显示"""
                 if 'log_container' not in st.session_state:
                     st.session_state.log_container = st.empty()
             
                 with st.session_state.log_container.container():
+                    st.markdown('<div class="log-container">', unsafe_allow_html=True)
+                    
                     # 合并显示所有消息
                     all_messages = []
                     
                     # 添加专家消息
-                    for msg in st.session_state.log_messages[-15:]:
-                        if msg["type"] == "speak":
-                            all_messages.append({
-                                "time": msg['time'],
-                                "type": "专家发言",
-                                "content": f"💬 {msg['agent']}: {msg['message']}",
-                                "style": "info"
-                            })
-                        elif msg["type"] == "vote":
-                            all_messages.append({
-                                "time": msg['time'],
-                                "type": "专家投票", 
-                                "content": f"✅ {msg['agent']}: {msg['message']}",
-                                "style": "success"
-                            })
+                    if 'log_messages' in st.session_state:
+                        all_messages.extend(st.session_state.log_messages[-15:])
                     
                     # 添加控制台输出
-                    for msg in st.session_state.console_output[-10:]:
-                        all_messages.append({
-                            "time": msg['time'],
-                            "type": "系统输出",
-                            "content": msg['message'],
-                            "style": "text"
-                        })
+                    if 'console_output' in st.session_state:
+                        all_messages.extend(st.session_state.console_output[-10:])
                     
                     # 按时间戳排序并显示
                     all_messages.sort(key=lambda x: x['time'])
                     for msg in all_messages[-25:]:  # 显示最近的25条合并消息
-                        if msg['style'] == "info":
-                            st.info(f"{msg['time']} {msg['content']}")
-                        elif msg['style'] == "success":
-                            st.success(f"{msg['time']} {msg['content']}")
+                        if 'html' in msg:
+                            st.markdown(f'<div class="log-message">{msg["html"]}</div>', unsafe_allow_html=True)
                         else:
-                            st.text(f"{msg['time']} - {msg['content']}")
+                            st.markdown(f'<div class="log-message">{msg["message"]}</div>', unsafe_allow_html=True)
+                    
+                    st.markdown('</div>', unsafe_allow_html=True)
                 
                     # 自动滚动到底部
                     st.markdown(
@@ -652,46 +692,66 @@ def show_analysis_results():
     # 显示日志容器(折叠状态)
     if 'log_messages' in st.session_state or 'console_output' in st.session_state:
         with st.expander("分析日志", expanded=False):  # 设置为False保持折叠
+            # 添加日志容器样式
+            st.markdown("""
+            <style>
+                .log-container {
+                    font-family: 'Courier New', monospace;
+                    background-color: #1e1e1e;
+                    color: #d4d4d4;
+                    padding: 10px;
+                    border-radius: 5px;
+                    margin-bottom: 10px;
+                    max-height: 600px;
+                    overflow-y: auto;
+                }
+                .log-message {
+                    margin: 5px 0;
+                    line-height: 1.5;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<div class="log-container">', unsafe_allow_html=True)
+            
             # 合并显示所有消息
             all_messages = []
             
             # 添加专家消息
             if 'log_messages' in st.session_state:
-                for msg in st.session_state.log_messages:
-                    if msg["type"] == "speak":
-                        all_messages.append({
-                            "time": msg['time'],
-                            "type": "专家发言",
-                            "content": f"💬 {msg['agent']}: {msg['message']}",
-                            "style": "info"
-                        })
-                    elif msg["type"] == "vote":
-                        all_messages.append({
-                            "time": msg['time'],
-                            "type": "专家投票", 
-                            "content": f"✅ {msg['agent']}: {msg['message']}",
-                            "style": "success"
-                        })
+                all_messages.extend(st.session_state.log_messages)
             
             # 添加控制台输出
             if 'console_output' in st.session_state:
-                for msg in st.session_state.console_output:
-                    all_messages.append({
-                        "time": msg['time'],
-                        "type": "系统输出",
-                        "content": msg['message'],
-                        "style": "text"
-                    })
+                all_messages.extend(st.session_state.console_output)
             
             # 按时间戳排序并显示
             all_messages.sort(key=lambda x: x['time'])
+            
+            # 使用RichLogRenderer渲染没有HTML内容的消息
+            renderer = RichLogRenderer()
+            
             for msg in all_messages:
-                if msg['style'] == "info":
-                    st.info(f"{msg['time']} {msg['content']}")
-                elif msg['style'] == "success":
-                    st.success(f"{msg['time']} {msg['content']}")
-                else:
-                    st.text(f"{msg['time']} - {msg['content']}")
+                if 'html' in msg:
+                    st.markdown(f'<div class="log-message">{msg["html"]}</div>', unsafe_allow_html=True)
+                elif 'message' in msg:
+                    # 根据消息类型选择渲染方式
+                    log_type = "text"
+                    if msg.get('type') == "speak":
+                        log_type = "info"
+                        styled_message = f"[{msg['time']}] 💬 {msg['agent']}: {msg['message']}"
+                    elif msg.get('type') == "vote":
+                        log_type = "success"
+                        styled_message = f"[{msg['time']}] ✅ {msg['agent']}: {msg['message']}"
+                    else:
+                        styled_message = f"[{msg['time']}] {msg['message']}"
+                    
+                    html_content = renderer.render_log(styled_message, log_type)
+                    st.markdown(f'<div class="log-message">{html_content}</div>', unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
 
     st.success("分析完成!")
     results = st.session_state.app_state.analysis_results
