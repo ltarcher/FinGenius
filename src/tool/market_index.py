@@ -1,12 +1,25 @@
 from typing import Dict, List, Optional, Any
 import logging
 import random
+import asyncio
 from datetime import datetime, timedelta
 
 from pydantic import BaseModel, Field
+import sys
+# 优先加载 Conda 环境的 mcp 模块
+sys.path.insert(0, "c:\\Users\\LMT\\.conda\\envs\\FinGenius\\Lib\\site-packages")
+import mcp
+#from mcp import ClientSession, StdioServerParameters
+
+print(sys.path)
+print(mcp.__file__)
 
 from src.tool.base import BaseTool
 from src.tool.base import ToolResult
+from src.tool.mcp_client import MCPClients
+import json
+from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +63,56 @@ class MarketIndexTool(BaseTool):
     
     def __init__(self, **data):
         super().__init__(**data)
-        from src.mcp.server import MCPClient
-        self.mcp_clients = MCPClient()
+        
+        # 默认配置（安全保守策略）
+        DEFAULT_CONFIG = {
+            "enabled": False,
+            "mcpServers": {
+                "mcp_stock": {
+                    "enabled": True,
+                    "type": "sse",
+                    "url": "http://localhost:8000/sse"
+                }
+            }
+        }
+        
+        # 加载配置（文件不存在时使用默认值）
+        config_path = Path(__file__).parent.parent.parent / "config" / "extra_mcp.json"
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                self._mcp_config = json.load(f)
+        except FileNotFoundError:
+            self._mcp_config = DEFAULT_CONFIG
+        
+        return
+ 
+        self._enabled = self._mcp_config.get("enabled", False)
+        self.mcp_clients = MCPClients() if self._enabled else None
+        self._initialized = False
+
+        if self._enabled:
+            # 避免在已有事件循环中调用asyncio.run()
+            asyncio.create_task(self._sync_initialize())
+                
+    async def _sync_initialize(self):
+        """同步初始化包装方法"""
+        await self.initialize()
+        self._initialized = True
+        
+    async def initialize(self):
+        """异步初始化MCP客户端连接"""
+        if not self._enabled:
+            return
+            
+        # 初始化启用的服务器
+        if hasattr(self, 'mcp_clients') and self.mcp_clients:
+            for _, server_config in self._mcp_config["mcpServers"].items():
+                if server_config.get("enabled", True):
+                    await self.mcp_clients.connect_sse(server_config["url"])
+            return
+            
+        server_url = self._mcp_config["mcpServers"]["mcp_stock"]["url"]
+        await self.mcp_clients.connect_sse(server_url)
     
     async def call_mcp_tool(self, tool_name: str, **kwargs) -> Any:
         """调用MCP服务器上的工具"""
@@ -59,7 +120,7 @@ class MarketIndexTool(BaseTool):
             raise Exception("MCP客户端未初始化")
             
         try:
-            result = await self.mcp_clients.call_tool(tool_name, kwargs)
+            result = await self.mcp_clients.excute(tool_name, kwargs)
             return result
         except Exception as e:
             logger.error(f"调用MCP工具 {tool_name} 失败: {str(e)}")
@@ -160,32 +221,6 @@ class MarketIndexTool(BaseTool):
                 error=f"大盘指数分析失败: {str(e)}",
                 data={"error": str(e)}
             )
-    
-    def _get_mock_index_data(self, index_code: Optional[str], period: str, days: int) -> Dict[str, Any]:
-        """生成模拟的指数数据
-        
-        注意：这是一个模拟函数，用于生成测试数据。在实际应用中，应该替换为真实的数据API调用。
-        """
-        # 定义主要指数
-        indices = {
-            "000001.SH": "上证指数",
-            "399001.SZ": "深证成指",
-            "399006.SZ": "创业板指",
-            "000688.SH": "科创50",
-            "HSI": "恒生指数"
-        }
-        
-        # 如果没有指定指数代码，则返回所有主要指数的数据
-        if not index_code:
-            return {code: self._generate_single_index_data(name, period, days) 
-                   for code, name in indices.items()}
-        
-        # 如果指定了指数代码，则只返回该指数的数据
-        if index_code in indices:
-            return {index_code: self._generate_single_index_data(indices[index_code], period, days)}
-        else:
-            # 如果指定的指数代码不在预定义列表中，则假设它是一个有效的指数代码
-            return {index_code: self._generate_single_index_data(f"指数{index_code}", period, days)}
     
     def _generate_single_index_data(self, index_name: str, period: str, days: int) -> Dict[str, Any]:
         """生成单个指数的模拟数据"""
