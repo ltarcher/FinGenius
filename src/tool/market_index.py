@@ -46,6 +46,12 @@ class MarketIndexTool(BaseTool):
     name: str = "market_index_analysis"
     description: str = "分析上证指数、恒生指数、创业板、科创板等大盘指数走势，评估市场整体趋势及其对个股的影响"
     input_schema: type = MarketIndexToolInput
+    mcp_clients: Any = None
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        from src.mcp.server import MCPClient
+        self.mcp_clients = MCPClient()
     
     async def call_mcp_tool(self, tool_name: str, **kwargs) -> Any:
         """调用MCP服务器上的工具"""
