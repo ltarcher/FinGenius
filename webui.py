@@ -256,6 +256,10 @@ def init_app():
     # 初始化会话状态
     if 'app_state' not in st.session_state:
         st.session_state.app_state = AppState()
+    if 'log_messages' not in st.session_state:
+        st.session_state.log_messages = []
+    if 'console_output' not in st.session_state:
+        st.session_state.console_output = []
 
     # 加载配置文件
     try:
@@ -510,6 +514,8 @@ def main():
         st.session_state.error_message = None
     if 'analysis_results' not in st.session_state:
         st.session_state.analysis_results = None
+    if 'console_output' not in st.session_state:
+        st.session_state.console_output = []
     
     # 分析控制按钮
     col1, col2 = st.columns(2)
@@ -599,10 +605,8 @@ async def run_analysis(params: Dict[str, Any]):
         # 增强的Streamlit可视化器，带Rich支持的实时日志功能
         class StreamlitVisualizer:
             def __init__(self):
-                if 'log_messages' not in st.session_state:
-                    st.session_state.log_messages = []
-                if 'console_output' not in st.session_state:
-                    st.session_state.console_output = []
+                # 使用已初始化的会话状态变量，不再重新初始化
+                # 这些变量应该在 init_app() 中已经初始化
                 self.last_update = time.time()
                 self.original_stdout = sys.stdout
                 self.renderer = RichLogRenderer()
@@ -639,6 +643,9 @@ async def run_analysis(params: Dict[str, Any]):
                         "html": html_content,
                         "type": "console"
                     }
+                    # 确保 console_output 已初始化
+                    if 'console_output' not in st.session_state:
+                        st.session_state.console_output = []
                     st.session_state.console_output.append(log_entry)
                     self._update_console_display()
 

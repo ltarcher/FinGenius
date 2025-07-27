@@ -83,8 +83,6 @@ class MarketIndexTool(BaseTool):
                 self._mcp_config = json.load(f)
         except FileNotFoundError:
             self._mcp_config = DEFAULT_CONFIG
-        
-        return
  
         self._enabled = self._mcp_config.get("enabled", False)
         self.mcp_clients = MCPClients() if self._enabled else None
@@ -102,17 +100,34 @@ class MarketIndexTool(BaseTool):
     async def initialize(self):
         """异步初始化MCP客户端连接"""
         if not self._enabled:
+            self._initialized = True
             return
             
-        # 初始化启用的服务器
-        if hasattr(self, 'mcp_clients') and self.mcp_clients:
-            for _, server_config in self._mcp_config["mcpServers"].items():
+        try:
+            # 确保 MCP 客户端已创建
+            if not hasattr(self, 'mcp_clients') or not self.mcp_clients:
+                self.mcp_clients = MCPClients()
+                
+            # 初始化启用的服务器
+            for server_name, server_config in self._mcp_config["mcpServers"].items():
                 if server_config.get("enabled", True):
-                    await self.mcp_clients.connect_sse(server_config["url"])
-            return
+                    try:
+                        if server_config.get("type") == "sse":
+                            await self.mcp_clients.connect_sse(server_config["url"])
+                        elif server_config.get("type") == "stdio":
+                            await self.mcp_clients.connect_stdio(
+                                server_config["command"], 
+                                server_config.get("args", [])
+                            )
+                    except Exception as e:
+                        logger.error(f"连接 MCP 服务器 {server_name} 失败: {str(e)}")
+                        continue
             
-        server_url = self._mcp_config["mcpServers"]["mcp_stock"]["url"]
-        await self.mcp_clients.connect_sse(server_url)
+            self._initialized = True
+        except Exception as e:
+            logger.error(f"初始化 MCP 客户端失败: {str(e)}")
+            self._initialized = False
+            raise
     
     async def call_mcp_tool(self, tool_name: str, **kwargs) -> Any:
         """调用MCP服务器上的工具"""
@@ -120,7 +135,7 @@ class MarketIndexTool(BaseTool):
             raise Exception("MCP客户端未初始化")
             
         try:
-            result = await self.mcp_clients.excute(tool_name, kwargs)
+            result = await self.mcp_clients.execute(tool_name, kwargs)
             return result
         except Exception as e:
             logger.error(f"调用MCP工具 {tool_name} 失败: {str(e)}")
@@ -168,7 +183,26 @@ class MarketIndexTool(BaseTool):
     
     async def execute(self, **kwargs) -> ToolResult:
         """Execute the tool with given parameters."""
-        return await self._run(**kwargs)
+        try:
+            # 确保工具已初始化
+            if not self._initialized:
+                await self.initialize()
+                self._initialized = True
+                
+            # 验证输入参数
+            input_params = self.input_schema(**kwargs)
+            
+            # 调用 _run 方法
+            return await self._run(
+                index_code=input_params.index_code,
+                period=input_params.period,
+                days=input_params.days,
+                analysis_type=input_params.analysis_type,
+                stock_code=input_params.stock_code
+            )
+        except Exception as e:
+            logger.error(f"执行工具 {self.name} 失败: {str(e)}")
+            return ToolResult(error=f"执行工具失败: {str(e)}")
 
     async def _run(self, index_code: Optional[str] = None, period: str = "daily", 
                   days: int = 30, analysis_type: str = "comprehensive", 

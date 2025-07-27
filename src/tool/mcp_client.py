@@ -1,6 +1,19 @@
 from contextlib import AsyncExitStack
 from typing import Dict, List, Optional
 
+import anyio
+try:
+    # Python 3.11+
+    from exceptiongroup import ExceptionGroup
+except ImportError:
+    # 在 Python 3.10 及以下版本中，使用 BaseExceptionGroup 作为替代
+    try:
+        from anyio._backends._asyncio import BaseExceptionGroup as ExceptionGroup
+    except ImportError:
+        # 如果都不可用，创建一个简单的替代类
+        class ExceptionGroup(Exception):
+            pass
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
@@ -62,12 +75,23 @@ class MCPClients(ToolCollection):
         exit_stack = AsyncExitStack()
         self.exit_stacks[server_id] = exit_stack
 
-        streams_context = sse_client(url=server_url)
-        streams = await exit_stack.enter_async_context(streams_context)
-        session = await exit_stack.enter_async_context(ClientSession(*streams))
-        self.sessions[server_id] = session
-
-        await self._initialize_and_list_tools(server_id)
+        try:
+            # 使用超时机制避免无限等待
+            with anyio.move_on_after(30.0) as scope:
+                streams_context = sse_client(url=server_url)
+                streams = await exit_stack.enter_async_context(streams_context)
+                session = await exit_stack.enter_async_context(ClientSession(*streams))
+                self.sessions[server_id] = session
+                
+                if scope.cancel_called:
+                    raise TimeoutError("Connection to SSE server timed out")
+                
+                await self._initialize_and_list_tools(server_id)
+        except Exception as e:
+            # 如果在设置过程中出现任何错误，确保清理资源
+            logger.error(f"Error connecting to SSE server {server_id}: {e}")
+            await self.disconnect(server_id)
+            raise
 
     async def connect_stdio(
         self, command: str, args: List[str], server_id: str = ""
@@ -85,15 +109,26 @@ class MCPClients(ToolCollection):
         exit_stack = AsyncExitStack()
         self.exit_stacks[server_id] = exit_stack
 
-        server_params = StdioServerParameters(command=command, args=args)
-        stdio_transport = await exit_stack.enter_async_context(
-            stdio_client(server_params)
-        )
-        read, write = stdio_transport
-        session = await exit_stack.enter_async_context(ClientSession(read, write))
-        self.sessions[server_id] = session
-
-        await self._initialize_and_list_tools(server_id)
+        try:
+            # 使用超时机制避免无限等待
+            with anyio.move_on_after(30.0) as scope:
+                server_params = StdioServerParameters(command=command, args=args)
+                stdio_transport = await exit_stack.enter_async_context(
+                    stdio_client(server_params)
+                )
+                read, write = stdio_transport
+                session = await exit_stack.enter_async_context(ClientSession(read, write))
+                self.sessions[server_id] = session
+                
+                if scope.cancel_called:
+                    raise TimeoutError("Connection to stdio server timed out")
+                
+                await self._initialize_and_list_tools(server_id)
+        except Exception as e:
+            # 如果在设置过程中出现任何错误，确保清理资源
+            logger.error(f"Error connecting to stdio server {server_id}: {e}")
+            await self.disconnect(server_id)
+            raise
 
     async def _initialize_and_list_tools(self, server_id: str) -> None:
         """Initialize session and populate tool map."""
@@ -141,30 +176,55 @@ class MCPClients(ToolCollection):
                 try:
                     exit_stack = self.exit_stacks.get(server_id)
 
-                    # Close the exit stack which will handle session cleanup
+                    # 先清理会话引用，减少异步关闭时的依赖
+                    session = self.sessions.pop(server_id, None)
+                    
+                    # 关闭 exit stack 前先尝试关闭会话
+                    if session:
+                        try:
+                            # 尝试优雅地关闭会话
+                            await session.shutdown()
+                        except Exception as e:
+                            logger.warning(f"Error shutting down session for {server_id}: {e}")
+                    
+                    # 关闭 exit stack，处理所有异步清理错误
                     if exit_stack:
                         try:
-                            await exit_stack.aclose()
-                        except RuntimeError as e:
-                            if "cancel scope" in str(e).lower():
+                            # 使用超时机制避免无限等待
+                            with anyio.move_on_after(5.0):
+                                await exit_stack.aclose()
+                        except (RuntimeError, ExceptionGroup, GeneratorExit, Exception) as e:
+                            error_str = str(e)
+                            # 处理所有已知的异步关闭错误
+                            if any(msg in error_str.lower() for msg in [
+                                "cancel scope", 
+                                "generator didn't stop", 
+                                "attempted to exit cancel scope",
+                                "unhandled errors in a taskgroup",
+                                "asyncgen",
+                                "generatorexit"
+                            ]):
                                 logger.warning(
-                                    f"Cancel scope error during disconnect from {server_id}, continuing with cleanup: {e}"
+                                    f"Async cleanup error during disconnect from {server_id}, continuing with cleanup: {e}"
                                 )
                             else:
-                                raise
+                                logger.error(f"Unexpected error during disconnect: {e}")
+                                # 不抛出异常，确保清理继续进行
 
-                    # Clean up references
-                    self.sessions.pop(server_id, None)
+                    # 确保清理所有引用，即使在出现异常的情况下
                     self.exit_stacks.pop(server_id, None)
 
-                    # Remove tools associated with this server
-                    self.tool_map = {
-                        k: v
-                        for k, v in self.tool_map.items()
-                        if v.server_id != server_id
-                    }
-                    self.tools = tuple(self.tool_map.values())
-                    logger.info(f"Disconnected from MCP server {server_id}")
+                    # 移除与此服务器关联的工具
+                    try:
+                        self.tool_map = {
+                            k: v
+                            for k, v in self.tool_map.items()
+                            if v.server_id != server_id
+                        }
+                        self.tools = tuple(self.tool_map.values())
+                        logger.info(f"Disconnected from MCP server {server_id}")
+                    except Exception as e:
+                        logger.error(f"Error cleaning up tools for server {server_id}: {e}")
                 except Exception as e:
                     logger.error(f"Error disconnecting from server {server_id}: {e}")
         else:

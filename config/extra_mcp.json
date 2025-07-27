@@ -1,0 +1,10 @@
+{
+    "enabled": true,
+    "mcpServers": {
+      "mcp_stock": {
+        "enabled": true,
+        "type": "sse",
+        "url": "http://localhost:8000/sse"
+      }
+    }
+}
