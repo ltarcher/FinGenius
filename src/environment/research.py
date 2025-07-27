@@ -9,6 +9,7 @@ from src.agent.risk_control import RiskControlAgent
 from src.agent.sentiment import SentimentAgent
 from src.agent.technical_analysis import TechnicalAnalysisAgent
 from src.agent.big_deal_analysis import BigDealAnalysisAgent
+from src.agent.market_index import MarketIndexAgent
 from src.environment.base import BaseEnvironment
 from src.logger import logger
 from src.schema import Message
@@ -33,6 +34,7 @@ class ResearchEnvironment(BaseEnvironment):
             "technical_analysis_agent": "technical",
             "chip_analysis_agent": "chip_analysis",
             "big_deal_analysis_agent": "big_deal",
+            "market_index_agent": "market_index",
         }
     )
 
@@ -48,6 +50,7 @@ class ResearchEnvironment(BaseEnvironment):
             "technical_analysis_agent": await TechnicalAnalysisAgent.create(max_steps=self.max_steps),
             "chip_analysis_agent": await ChipAnalysisAgent.create(max_steps=self.max_steps),
             "big_deal_analysis_agent": await BigDealAnalysisAgent.create(max_steps=self.max_steps),
+            "market_index_agent": await MarketIndexAgent.create(max_steps=self.max_steps),
         }
 
         # Register all agents

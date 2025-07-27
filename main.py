@@ -89,6 +89,7 @@ class EnhancedFinGeniusAnalyzer:
                 "technical_analysis_agent",
                 "chip_analysis_agent",
                 "big_deal_analysis_agent",
+                "market_index_agent",
             ]
             
             for name in agent_names:
@@ -133,6 +134,7 @@ class EnhancedFinGeniusAnalyzer:
                 "technical_analysis_agent",
                 "chip_analysis_agent",
                 "big_deal_analysis_agent",
+                "market_index_agent",
             ]
             
             for name in agent_names:
